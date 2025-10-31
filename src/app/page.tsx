@@ -46,6 +46,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { renderReportHtml } from "@/lib/report-to-html";
+import { generateEnhancedReport } from "@/lib/report";
 import type { BusinessPrefill } from "@/lib/prefill";
 import type {
   KeywordStat,
@@ -139,7 +140,12 @@ export default function Home() {
   const hasReport = !!report;
   const hasContentDrafts = hasReport && Boolean(report?.contentDrafts?.length);
   const hasRecommendations = hasReport && Boolean(report?.recommendations?.length);
-  const reportHtml = useMemo(() => (report ? renderReportHtml(report) : ""), [report]);
+  const reportHtml = useMemo(() => {
+    if (!report) return "";
+    // Use enhanced report if ANY phase data is present
+    const hasEnhancedData = report.intelligence || report.strategy || report.blueprints || report.generatedContent;
+    return hasEnhancedData ? generateEnhancedReport(report) : renderReportHtml(report);
+  }, [report]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

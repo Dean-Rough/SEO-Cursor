@@ -65,7 +65,7 @@ export async function initTelemetry(): Promise<void> {
         : {},
     });
 
-    provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+    (provider as any).addSpanProcessor(new BatchSpanProcessor(exporter));
     provider.register();
 
     // Register instrumentations

@@ -125,6 +125,7 @@ export interface SeoReport {
       averageImageCount: number;
       averageSectionCount: number;
       commonSchemaTypes: string[];
+      faqPresence: number;
     };
     contentGaps: Array<{
       suggestedUrl: string;

@@ -25,6 +25,7 @@ export interface StrategyInput {
     averageWordCount: number;
     averageImageCount: number;
     averageSectionCount: number;
+    faqPresence: number;
   };
   businessType: string;
 }

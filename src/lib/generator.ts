@@ -15,6 +15,17 @@ import { generateContentDrafts, type ContentBrief } from "./content-writer";
 import { hasMozDataApiToken, hasOpenAICredentials } from "./env";
 import { senseCheckKeywords, type SenseCheckResult } from "./ai-utils";
 import { fetchMozKeywordInsights } from "./moz-keywords";
+import { fetchPageHtml } from "./fetcher";
+import {
+  analyzeContentDepth,
+  buildPageInventory,
+  identifyContentGaps
+} from './intelligence';
+import { enrichPageAnalysis } from './adapters/intelligence-adapter';
+import type { EnhancedPageAnalysis } from './intelligence/types';
+import { buildStrategy } from './adapters/strategy-adapter';
+import { assembleSiteBlueprints } from './blueprints';
+import { generateMultiplePages } from './generation';
 import type {
   ContentGap,
   KeywordStat,
@@ -38,6 +49,13 @@ const INPUT_SCHEMA = z.object({
     .array(z.string().min(3))
     .max(5)
     .default([]),
+  enhancedFeatures: z.object({
+    enableEnhancedIntelligence: z.boolean().optional(),
+    enableStrategy: z.boolean().optional(),
+    enableBlueprints: z.boolean().optional(),
+    enableAIGeneration: z.boolean().optional(),
+    enableEnhancedReport: z.boolean().optional(),
+  }).optional(),
 });
 
 const MAX_INTERNAL_PAGES = 15;
@@ -154,6 +172,102 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     metrics: mozMetrics.get(snapshot.domain) ?? snapshot.metrics ?? null,
   }));
 
+  // ========================================
+  // PHASE 1: ENHANCED INTELLIGENCE
+  // ========================================
+  let intelligenceReport: SeoReport['intelligence'] = undefined;
+
+  if (input.enhancedFeatures?.enableEnhancedIntelligence) {
+    const phase1Start = Date.now();
+    console.log('🧠 Phase 1: Enhanced Intelligence...');
+    try {
+      // Enrich target site pages
+      const enhancedTargetPages: EnhancedPageAnalysis[] = [];
+      for (const page of targetSite.pages) {
+        if (page.status === 'ok') {
+          const result = await fetchPageHtml(page.url);
+          if (result.ok) {
+            const enhanced = await enrichPageAnalysis(page, result.html, {
+              type: input.businessType,
+              location: locationContext.primaryLocation
+            });
+            enhancedTargetPages.push(enhanced);
+          }
+        }
+      }
+
+      // Enrich competitor pages
+      const allCompetitorEnhanced: Array<{ domain: string; pages: EnhancedPageAnalysis[] }> = [];
+      for (const competitor of competitorSnapshots) {
+        const enhancedPages: EnhancedPageAnalysis[] = [];
+        for (const page of competitor.pages) {
+          if (page.status === 'ok') {
+            const result = await fetchPageHtml(page.url);
+            if (result.ok) {
+              const enhanced = await enrichPageAnalysis(page, result.html, {
+                type: input.businessType,
+                location: locationContext.primaryLocation
+              });
+              enhancedPages.push(enhanced);
+            }
+          }
+        }
+        allCompetitorEnhanced.push({
+          domain: competitor.domain,
+          pages: enhancedPages
+        });
+      }
+
+      // Analyze content depth
+      const targetDepth = analyzeContentDepth(enhancedTargetPages);
+      const competitorDepth = analyzeContentDepth(
+        allCompetitorEnhanced.flatMap(c => c.pages)
+      );
+
+      // Build page inventory and identify gaps
+      const inventory = buildPageInventory(allCompetitorEnhanced);
+      const gaps = identifyContentGaps(
+        enhancedTargetPages,
+        inventory
+      );
+
+      intelligenceReport = {
+        targetSiteAnalysis: {
+          pageTypeBreakdown: calculatePageTypeBreakdown(enhancedTargetPages),
+          averageContentDepth: {
+            wordCount: targetDepth.averageWordCount,
+            h2Count: targetDepth.averageH2Count,
+            imageCount: targetDepth.averageImageCount,
+          },
+          ctaPresence: calculateCTAPresence(enhancedTargetPages),
+          schemaMarkupPresence: calculateSchemaPresence(enhancedTargetPages),
+        },
+        competitorBenchmarks: {
+          averageWordCount: competitorDepth.averageWordCount,
+          averageImageCount: competitorDepth.averageImageCount,
+          averageSectionCount: competitorDepth.averageH2Count + competitorDepth.averageH3Count,
+          commonSchemaTypes: competitorDepth.commonSchemaTypes || [],
+          faqPresence: competitorDepth.faqPresenceRate * 100, // Convert to percentage
+        },
+        contentGaps: gaps.map((g, index) => ({
+          suggestedUrl: `/${g.slug}/`,
+          pageType: g.pageType,
+          competitorCount: g.competitorCount,
+          priority: g.competitorCount >= 3 ? 8 : 5, // Higher priority if more competitors have it
+        })),
+      };
+
+      console.log('✅ Phase 1 complete:', {
+        targetPages: enhancedTargetPages.length,
+        competitorPages: allCompetitorEnhanced.reduce((sum, c) => sum + c.pages.length, 0),
+        gaps: gaps.length,
+        duration: `${Date.now() - phase1Start}ms`
+      });
+    } catch (error) {
+      console.warn('⚠️  Phase 1 (Intelligence) failed, continuing without enhanced data:', error);
+    }
+  }
+
   const keywordStrategy = await prepareKeywordStrategy({
     input,
     datasetKeywords,
@@ -220,6 +334,200 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     additionalNotes,
     googleBusinessProfile,
   });
+
+  // ========================================
+  // PHASE 2: STRATEGIC PLANNING
+  // ========================================
+  let strategyReport: SeoReport['strategy'] = undefined;
+
+  if (input.enhancedFeatures?.enableStrategy && intelligenceReport) {
+    const phase2Start = Date.now();
+    console.log('🎯 Phase 2: Strategic Planning...');
+    try {
+      // Gather all keywords
+      const allKeywords = [
+        ...keywordStrategy.siteKeywords,
+        ...keywordStrategy.competitorKeywords,
+        ...keywordStrategy.datasetKeywords.map(k => ({
+          keyword: k.keyword,
+          score: k.score,
+          density: k.density,
+          volume: k.volume,
+          difficulty: k.difficulty,
+          intent: k.intent,
+          source: 'dataset' as const,
+        })),
+      ];
+
+      const strategy = await buildStrategy({
+        keywords: allKeywords,
+        existingPages: targetSite.pages.map(p => p.url),
+        targetSite: {
+          domain: targetSite.domain,
+          pages: [] // Will be populated by Agent 1's enhanced pages
+        },
+        competitors: [], // Will be populated by Agent 1's enhanced pages
+        competitorInventory: intelligenceReport.contentGaps,
+        contentDepthMetrics: intelligenceReport.competitorBenchmarks,
+        businessType: input.businessType,
+      });
+
+      strategyReport = {
+        keywordClusters: strategy.clusters.map((c: any) => ({
+          name: c.name,
+          primaryKeyword: c.primaryKeyword,
+          totalVolume: c.totalVolume || 0,
+          averageDifficulty: c.averageDifficulty || 0,
+          keywords: c.keywords.map((k: any) => k.keyword),
+        })),
+        pageStrategies: strategy.mappings.map((m: any) => {
+          const target = strategy.targets.find((t: any) => t.url === m.url);
+          return {
+            url: m.url,
+            pageType: m.pageType || 'other',
+            primaryKeyword: m.primaryKeyword,
+            secondaryKeywords: m.secondaryKeywords || [],
+            priority: m.priority || 5,
+            status: m.status || 'create',
+            contentTargets: target ? {
+              wordCount: target.wordCount,
+              sectionCount: target.sectionCount,
+              imageCount: target.imageCount,
+              includeFAQ: target.includeFAQ || false,
+            } : undefined,
+          };
+        }),
+        internalLinkingMap: strategy.linking?.links?.map((link: any) => ({
+          fromUrl: link.fromUrl,
+          toUrl: link.toUrl,
+          anchorText: link.anchorText,
+        })) || [],
+      };
+
+      console.log('✅ Phase 2 complete:', {
+        clusters: strategy.clusters.length,
+        pageStrategies: strategy.mappings.length,
+        links: strategy.linking?.links?.length || 0,
+        duration: `${Date.now() - phase2Start}ms`
+      });
+    } catch (error) {
+      console.warn('⚠️  Phase 2 (Strategy) failed, continuing without strategy data:', error);
+    }
+  }
+
+  // ========================================
+  // PHASE 3: CONTENT BLUEPRINTS
+  // ========================================
+  let blueprints: any[] | undefined = undefined;
+
+  if (input.enhancedFeatures?.enableBlueprints && strategyReport) {
+    const phase3Start = Date.now();
+    console.log('📐 Phase 3: Content Blueprints...');
+    try {
+      const businessInfo = {
+        name: input.businessName,
+        businessType: input.businessType,
+        serviceArea: locationContext.serviceArea || locationContext.primaryLocation || '',
+        address: locationContext.address || input.businessAddress || '',
+        phone: '',
+        email: '',
+        website: input.website,
+      };
+
+      // Convert page strategies to PageStrategy format
+      const pageStrategies = strategyReport.pageStrategies.map(ps => {
+        const validPageTypes = ['homepage', 'service', 'blog', 'about', 'contact', 'other'] as const;
+        const pageType = (validPageTypes.includes(ps.pageType as any) ? ps.pageType : 'other') as 'homepage' | 'service' | 'blog' | 'about' | 'contact' | 'other';
+
+        return {
+          url: ps.url,
+          pageType,
+          primaryKeyword: ps.primaryKeyword,
+          secondaryKeywords: ps.secondaryKeywords,
+          contentTargets: ps.contentTargets ? {
+            wordCount: ps.contentTargets.wordCount,
+            sectionCount: ps.contentTargets.sectionCount,
+            imageCount: ps.contentTargets.imageCount,
+            includesFAQ: ps.contentTargets.includeFAQ || false
+          } : {
+            wordCount: 800,
+            sectionCount: 5,
+            imageCount: 3,
+            includesFAQ: false
+          },
+          priority: ps.priority,
+          status: ps.status,
+        };
+      });
+
+      blueprints = assembleSiteBlueprints(pageStrategies, businessInfo);
+
+      console.log('✅ Phase 3 complete:', {
+        blueprints: blueprints.length,
+        duration: `${Date.now() - phase3Start}ms`
+      });
+    } catch (error) {
+      console.warn('⚠️  Phase 3 (Blueprints) failed, continuing without blueprints:', error);
+    }
+  }
+
+  // ========================================
+  // PHASE 4: AI CONTENT GENERATION
+  // ========================================
+  let generatedContent: any[] | undefined = undefined;
+
+  if (input.enhancedFeatures?.enableAIGeneration && blueprints) {
+    const openaiKey = process.env.OPENAI_API_KEY;
+
+    if (!openaiKey) {
+      console.warn('⚠️  OPENAI_API_KEY not found, skipping AI generation');
+    } else {
+      const phase4Start = Date.now();
+      console.log('✍️  Phase 4: AI Content Generation...');
+      try {
+        const businessContext = {
+          businessName: input.businessName,
+          businessType: input.businessType,
+          location: locationContext.primaryLocation || '',
+          serviceArea: locationContext.serviceArea || '',
+        };
+
+        const options = {
+          businessContext,
+          includeImagePlaceholders: true,
+          enforceQuality: true,
+          minQualityScore: 70,
+        };
+
+        // Limit to top 5 priority pages to control costs
+        const topPriorityBlueprints = blueprints
+          .sort((a: any, b: any) => (b.priority || 0) - (a.priority || 0))
+          .slice(0, 5);
+
+        const estimatedCost = estimateGenerationCost(topPriorityBlueprints.length);
+        console.log(`💰 Estimated OpenAI cost: $${estimatedCost.toFixed(2)}`);
+
+        generatedContent = await generateMultiplePages(
+          topPriorityBlueprints,
+          options
+        );
+
+        if (generatedContent && generatedContent.length > 0) {
+          console.log('✅ Phase 4 complete:', {
+            pagesGenerated: generatedContent.length,
+            avgQuality: generatedContent.reduce((sum: number, c: any) => sum + c.qualityScore, 0) / generatedContent.length,
+            duration: `${Date.now() - phase4Start}ms`
+          });
+        } else {
+          console.log('✅ Phase 4 complete (no content generated):', {
+            duration: `${Date.now() - phase4Start}ms`
+          });
+        }
+      } catch (error) {
+        console.error('⚠️  Phase 4 (Content Generation) failed:', error);
+      }
+    }
+  }
 
   // Assess data quality and generate warnings
   const dataQualityWarnings: string[] = [];
@@ -294,6 +602,10 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     contentDrafts,
     siteArchitecture,
     recommendations,
+    intelligence: intelligenceReport,
+    strategy: strategyReport,
+    blueprints,
+    generatedContent,
   };
 }
 
@@ -1574,6 +1886,29 @@ function capitalise(value: string): string {
     .split(" ")
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(" ");
+}
+
+function estimateGenerationCost(blueprintCount: number): number {
+  // Rough estimate: $0.04 per page (4 sections + metadata + FAQs)
+  return blueprintCount * 0.04;
+}
+
+function calculatePageTypeBreakdown(pages: EnhancedPageAnalysis[]): Record<string, number> {
+  const breakdown: Record<string, number> = {};
+  pages.forEach(page => {
+    breakdown[page.pageType] = (breakdown[page.pageType] || 0) + 1;
+  });
+  return breakdown;
+}
+
+function calculateCTAPresence(pages: EnhancedPageAnalysis[]): number {
+  const withCTAs = pages.filter(p => p.ctas && p.ctas.length > 0).length;
+  return pages.length > 0 ? (withCTAs / pages.length) * 100 : 0;
+}
+
+function calculateSchemaPresence(pages: EnhancedPageAnalysis[]): number {
+  const withSchema = pages.filter(p => p.schemaTypes && p.schemaTypes.length > 0).length;
+  return pages.length > 0 ? (withSchema / pages.length) * 100 : 0;
 }
 
 export const generatorTestUtils = {

@@ -12,8 +12,8 @@ import {
   analyzeContentDepth,
   categorizePageByUrl,
   analyzePageImages,
-} from './index';
-import type { EnhancedPageAnalysis } from './types';
+} from '@/lib/intelligence';
+import type { EnhancedPageAnalysis } from '@/lib/intelligence/types';
 
 describe('Site Crawler - Page Type Detection', () => {
   it('should detect homepage', () => {
@@ -320,7 +320,7 @@ describe('Integration - Enhanced Page Analysis', () => {
       </html>
     `;
 
-    const { analyzePageEnhanced } = await import('./site-crawler');
+    const { analyzePageEnhanced } = await import('@/lib/intelligence');
     const result = await analyzePageEnhanced(
       'https://example.com/services',
       html,

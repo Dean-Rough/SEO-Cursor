@@ -69,5 +69,5 @@ export {
   exportPageContent,
 } from "./content-assembler";
 
-// Main orchestrator export
-export { generateCompletePageContent } from "./orchestrator";
+// Main orchestrator exports
+export { generateCompletePageContent, generateMultiplePages } from "./orchestrator";
