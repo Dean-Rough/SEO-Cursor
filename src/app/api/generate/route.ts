@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { generateSeoReport } from "@/lib/generator";
+import { checkRateLimit, getRequestIdentifier } from "@/lib/rate-limit";
 import type { SiteInput } from "@/lib/types";
 
 const REQUEST_SCHEMA = z.object({
@@ -17,6 +18,31 @@ const REQUEST_SCHEMA = z.object({
 
 export async function POST(request: Request) {
   try {
+    // Rate limiting: 10 requests per hour per IP
+    const identifier = getRequestIdentifier(request);
+    const rateLimit = checkRateLimit(identifier, {
+      limit: 10,
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        {
+          message: "Rate limit exceeded. Please try again later.",
+          retryAfter: Math.ceil((rateLimit.reset - Date.now()) / 1000),
+        },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": String(rateLimit.limit),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+            "X-RateLimit-Reset": String(rateLimit.reset),
+            "Retry-After": String(Math.ceil((rateLimit.reset - Date.now()) / 1000)),
+          },
+        }
+      );
+    }
+
     const payload = await request.json();
     const data = REQUEST_SCHEMA.parse(payload);
 
@@ -35,6 +61,9 @@ export async function POST(request: Request) {
     return NextResponse.json(report, {
       headers: {
         "cache-control": "no-store",
+        "X-RateLimit-Limit": String(rateLimit.limit),
+        "X-RateLimit-Remaining": String(rateLimit.remaining),
+        "X-RateLimit-Reset": String(rateLimit.reset),
       },
     });
   } catch (error) {
@@ -45,14 +74,21 @@ export async function POST(request: Request) {
       );
     }
 
-    console.error("[generate-api]", error);
+    console.error("[generate-api] Full error details:", error);
+
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const detailedMessage = errorMessage.includes("OpenAI")
+      ? "OpenAI API error - check your API key and model availability"
+      : errorMessage.includes("Moz")
+      ? "Moz API error - check your credentials and rate limits"
+      : errorMessage.includes("fetch")
+      ? "Network error while crawling - target site may be unreachable"
+      : `Report generation failed: ${errorMessage}`;
 
     return NextResponse.json(
       {
-        message:
-          error instanceof Error
-            ? error.message
-            : "Unexpected error creating SEO report",
+        message: detailedMessage,
+        error: errorMessage,
       },
       { status: 500 }
     );

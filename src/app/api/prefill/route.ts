@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { enrichBusinessProfile } from "@/lib/prefill";
+import { checkRateLimit, getRequestIdentifier } from "@/lib/rate-limit";
 
 const MAX_INLINE_REDIRECTS = 4;
 
@@ -167,6 +168,31 @@ const REQUEST_SCHEMA = z.object({
 
 export async function POST(request: Request) {
   try {
+    // Rate limiting: 20 requests per hour per IP (higher than generate since it's lighter)
+    const identifier = getRequestIdentifier(request);
+    const rateLimit = checkRateLimit(identifier, {
+      limit: 20,
+      windowMs: 60 * 60 * 1000, // 1 hour
+    });
+
+    if (!rateLimit.success) {
+      return NextResponse.json(
+        {
+          message: "Rate limit exceeded. Please try again later.",
+          retryAfter: Math.ceil((rateLimit.reset - Date.now()) / 1000),
+        },
+        {
+          status: 429,
+          headers: {
+            "X-RateLimit-Limit": String(rateLimit.limit),
+            "X-RateLimit-Remaining": String(rateLimit.remaining),
+            "X-RateLimit-Reset": String(rateLimit.reset),
+            "Retry-After": String(Math.ceil((rateLimit.reset - Date.now()) / 1000)),
+          },
+        }
+      );
+    }
+
     const payload = await request.json();
     const { googleBusinessProfile } = REQUEST_SCHEMA.parse(payload);
     const fetchResult = await fetchProfileDocument(googleBusinessProfile);
@@ -217,6 +243,9 @@ export async function POST(request: Request) {
       {
         headers: {
           "cache-control": "no-store",
+          "X-RateLimit-Limit": String(rateLimit.limit),
+          "X-RateLimit-Remaining": String(rateLimit.remaining),
+          "X-RateLimit-Reset": String(rateLimit.reset),
         },
       }
     );

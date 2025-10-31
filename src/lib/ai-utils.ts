@@ -32,7 +32,7 @@ export async function senseCheckKeywords(input: {
       authorization: `Bearer ${env.OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "gpt-5",
+      model: "gpt-4o",
       response_format: { type: "json_object" },
       messages: [
         {

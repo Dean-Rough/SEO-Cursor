@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/lib/hooks/useToast";
+import { logError, logInfo, getUserFriendlyMessage, isRetryableError, ErrorCodes } from "@/lib/error-logger";
 import {
   Card,
   CardContent,
@@ -23,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Tabs,
   TabsContent,
@@ -52,6 +55,7 @@ import type {
   SiteArchitectureEntry,
 } from "@/lib/types";
 import {
+  AlertCircle,
   ArrowRight,
   Copy,
   DownloadCloud,
@@ -61,7 +65,15 @@ import {
   RefreshCcw,
   Trash2,
   Sparkles,
+  X,
 } from "lucide-react";
+import {
+  MAX_COMPETITORS_IN_FORM,
+  COPY_FEEDBACK_TIMEOUT_MS,
+  PROGRESS_MESSAGE_INTERVAL_MS,
+  STORAGE_KEY_REPORT,
+  STORAGE_KEY_FORM,
+} from "@/lib/constants";
 
 const PROGRESS_MESSAGES = [
   "Crawling the target site map…",
@@ -83,7 +95,7 @@ type FormState = {
   useSenseCheck: boolean;
 };
 
-const MAX_COMPETITORS = 5;
+const MAX_COMPETITORS = MAX_COMPETITORS_IN_FORM;
 
 const defaultForm: FormState = {
   businessName: "",
@@ -117,8 +129,12 @@ export default function Home() {
   const [prefillError, setPrefillError] = useState<string | null>(null);
   const [prefillNotes, setPrefillNotes] = useState<string[]>([]);
   const [hasHydrated, setHasHydrated] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showCompetitorWarning, setShowCompetitorWarning] = useState(false);
+  const [pendingSubmit, setPendingSubmit] = useState<(() => void) | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
+  const toast = useToast();
 
   const hasReport = !!report;
   const hasContentDrafts = hasReport && Boolean(report?.contentDrafts?.length);
@@ -128,8 +144,8 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const storedReport = window.localStorage.getItem("seoWizard:report");
-      const storedForm = window.localStorage.getItem("seoWizard:form");
+      const storedReport = window.localStorage.getItem(STORAGE_KEY_REPORT);
+      const storedForm = window.localStorage.getItem(STORAGE_KEY_FORM);
 
       if (storedReport) {
         const parsedReport = JSON.parse(storedReport) as SeoReport;
@@ -175,9 +191,9 @@ export default function Home() {
     if (typeof window === "undefined" || !hasHydrated) return;
     try {
       if (report) {
-        window.localStorage.setItem("seoWizard:report", JSON.stringify(report));
+        window.localStorage.setItem(STORAGE_KEY_REPORT, JSON.stringify(report));
       } else {
-        window.localStorage.removeItem("seoWizard:report");
+        window.localStorage.removeItem(STORAGE_KEY_REPORT);
       }
     } catch (storageError) {
       console.warn("Failed to persist report", storageError);
@@ -187,7 +203,7 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === "undefined" || !hasHydrated) return;
     try {
-      window.localStorage.setItem("seoWizard:form", JSON.stringify(form));
+      window.localStorage.setItem(STORAGE_KEY_FORM, JSON.stringify(form));
     } catch (storageError) {
       console.warn("Failed to persist form", storageError);
     }
@@ -197,12 +213,17 @@ export default function Home() {
     const gbp = form.googleBusinessProfile.trim();
     if (!gbp) {
       setPrefillError("Add a Google Business Profile link first.");
+      toast.warning("Google Business Profile link required", {
+        description: "Please add a Google Business Profile link before using prefill.",
+      });
       return;
     }
 
     setPrefillError(null);
     setPrefillNotes([]);
     setIsPrefilling(true);
+
+    const loadingToastId = toast.loading("Fetching business details from Google...");
 
     try {
       const response = await fetch("/api/prefill", {
@@ -239,16 +260,52 @@ export default function Home() {
       if (data.notes?.length) {
         setPrefillNotes(data.notes);
       }
+
+      toast.dismiss(loadingToastId);
+      toast.success("Business details prefilled successfully", {
+        description: "Review and adjust the fields as needed.",
+      });
+
+      logInfo("Prefill successful", {
+        component: "Home",
+        action: "prefill",
+        metadata: { hasNotes: Boolean(data.notes?.length) },
+      });
     } catch (prefillErr) {
+      const errorMessage = getUserFriendlyMessage(prefillErr);
       setPrefillError(
         prefillErr instanceof Error
           ? prefillErr.message
           : "Unexpected error while pre-filling."
       );
+
+      toast.dismiss(loadingToastId);
+
+      const isRetryable = isRetryableError(prefillErr);
+      toast.error("Failed to prefill business details", {
+        description: errorMessage,
+        action: isRetryable
+          ? {
+              label: "Retry",
+              onClick: handlePrefill,
+            }
+          : undefined,
+        duration: 6000,
+      });
+
+      logError(
+        prefillErr instanceof Error ? prefillErr : new Error(String(prefillErr)),
+        {
+          component: "Home",
+          action: "prefill",
+          metadata: { googleBusinessProfile: gbp },
+        },
+        "medium"
+      );
     } finally {
       setIsPrefilling(false);
     }
-  }, [form.googleBusinessProfile]);
+  }, [form.googleBusinessProfile, toast]);
 
   useEffect(() => {
     if (isGenerating) {
@@ -264,7 +321,7 @@ export default function Home() {
           clearInterval(progressInterval.current);
           progressInterval.current = null;
         }
-      }, 2200);
+      }, PROGRESS_MESSAGE_INTERVAL_MS);
     } else {
       if (progressInterval.current) {
         clearInterval(progressInterval.current);
@@ -274,8 +331,7 @@ export default function Home() {
     }
   }, [isGenerating]);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const performGeneration = async () => {
     setError(null);
     setGenerationMessage(PROGRESS_MESSAGES[0]);
     setIsGenerating(true);
@@ -305,6 +361,15 @@ export default function Home() {
 
       if (!response.ok) {
         const message = await response.json().catch(() => null);
+
+        // Handle rate limiting specifically
+        if (response.status === 429) {
+          const retryAfter = message?.retryAfter ?? 60;
+          throw new Error(
+            `Rate limit exceeded. Please try again in ${retryAfter} seconds.`
+          );
+        }
+
         throw new Error(
           message?.message ??
             "Something went wrong while generating your report."
@@ -327,25 +392,109 @@ export default function Home() {
           localityKeywords: data.keywordOpportunities.localityKeywords ?? [],
         },
       });
+
+      const keywordCount =
+        data.keywordOpportunities.strongestKeywords.length +
+        data.keywordOpportunities.quickWins.length +
+        data.keywordOpportunities.contentGaps.length +
+        (data.keywordOpportunities.localityKeywords?.length || 0);
+
+      toast.success("SEO strategy generated successfully!", {
+        description: `Found ${keywordCount} keyword opportunities for ${form.businessName}.`,
+        duration: 5000,
+      });
+
+      logInfo("Report generation successful", {
+        component: "Home",
+        action: "generate",
+        metadata: {
+          businessName: form.businessName,
+          keywordCount,
+          competitorCount: form.competitors.filter(Boolean).length,
+        },
+      });
     } catch (cause) {
+      const errorMessage = getUserFriendlyMessage(cause);
       setError(
         cause instanceof Error ? cause.message : "Unexpected error occurred."
+      );
+
+      const isRetryable = isRetryableError(cause);
+      toast.error("Failed to generate SEO strategy", {
+        description: errorMessage,
+        action: isRetryable
+          ? {
+              label: "Retry",
+              onClick: performGeneration,
+            }
+          : undefined,
+        duration: 8000,
+      });
+
+      logError(
+        cause instanceof Error ? cause : new Error(String(cause)),
+        {
+          component: "Home",
+          action: "generate",
+          metadata: {
+            businessName: form.businessName,
+            website: form.website,
+          },
+        },
+        "high"
       );
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const handleReset = () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const competitorCount = form.competitors.filter((c) => c.trim()).length;
+
+    // Show warning if no competitors provided
+    if (competitorCount === 0) {
+      setPendingSubmit(() => performGeneration);
+      setShowCompetitorWarning(true);
+      return;
+    }
+
+    await performGeneration();
+  };
+
+  const confirmGenerateWithoutCompetitors = async () => {
+    setShowCompetitorWarning(false);
+    if (pendingSubmit) {
+      await pendingSubmit();
+      setPendingSubmit(null);
+    }
+  };
+
+  const confirmReset = () => {
     setForm(defaultForm);
     setReport(null);
     setError(null);
     setPrefillError(null);
     setPrefillNotes([]);
+    setShowResetConfirm(false);
     if (typeof window !== "undefined") {
-      window.localStorage.removeItem("seoWizard:report");
-      window.localStorage.removeItem("seoWizard:form");
+      window.localStorage.removeItem(STORAGE_KEY_REPORT);
+      window.localStorage.removeItem(STORAGE_KEY_FORM);
     }
+
+    toast.success("Everything reset", {
+      description: "All form data and reports have been cleared.",
+    });
+
+    logInfo("User reset all data", {
+      component: "Home",
+      action: "reset",
+    });
+  };
+
+  const handleReset = () => {
+    setShowResetConfirm(true);
   };
 
   const handleCopy = useCallback(
@@ -371,27 +520,73 @@ export default function Home() {
         }
 
         setCopyTarget(key);
-        copyTimeout.current = setTimeout(() => setCopyTarget(null), 1600);
+        copyTimeout.current = setTimeout(() => setCopyTarget(null), COPY_FEEDBACK_TIMEOUT_MS);
+
+        toast.success("Copied to clipboard", {
+          duration: 2000,
+        });
       } catch (copyError) {
         console.warn("Failed to copy", copyError);
+        toast.error("Failed to copy", {
+          description: "Could not copy to clipboard. Please try again.",
+          duration: 3000,
+        });
+
+        logError(
+          copyError instanceof Error ? copyError : new Error("Copy failed"),
+          {
+            component: "Home",
+            action: "copy",
+            metadata: { key },
+          },
+          "low"
+        );
       }
     },
-    []
+    [toast]
   );
 
   const handleDownloadHtml = () => {
     if (!report) return;
 
-    const html = reportHtml || renderReportHtml(report);
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${slugify(report.input.businessName)}-seo-blueprint.html`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    try {
+      const html = reportHtml || renderReportHtml(report);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const filename = `${slugify(report.input.businessName)}-seo-blueprint.html`;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      toast.success("Report downloaded", {
+        description: `${filename} has been saved to your downloads.`,
+        duration: 3000,
+      });
+
+      logInfo("Report downloaded", {
+        component: "Home",
+        action: "download",
+        metadata: { businessName: report.input.businessName },
+      });
+    } catch (downloadError) {
+      toast.error("Failed to download report", {
+        description: "Could not generate download. Please try again.",
+        duration: 4000,
+      });
+
+      logError(
+        downloadError instanceof Error ? downloadError : new Error("Download failed"),
+        {
+          component: "Home",
+          action: "download",
+        },
+        "low"
+      );
+    }
   };
 
   const keywordScore = useMemo(() => {
@@ -534,15 +729,28 @@ export default function Home() {
                         )}
                       </Button>
                     </div>
-                    {prefillError ? (
-                      <p className="text-xs text-red-300">{prefillError}</p>
-                    ) : null}
+                    {prefillError && (
+                      <Alert variant="destructive" className="relative">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="flex items-start justify-between gap-2">
+                          <span className="flex-1 text-xs">{prefillError}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => setPrefillError(null)}
+                            className="h-5 w-5 shrink-0"
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </AlertDescription>
+                      </Alert>
+                    )}
                     {prefillNotes.length ? (
                       <div className="space-y-1">
                         {prefillNotes.map((note, index) => (
                           <p
                             key={`${note}-${index}`}
-                            className="text-[0.65rem] text-zinc-500"
+                            className="text-xs text-zinc-500"
                           >
                             • {note}
                           </p>
@@ -629,7 +837,7 @@ export default function Home() {
                 <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                         Sense check
                       </p>
                       <p className="text-xs text-zinc-400">
@@ -645,7 +853,7 @@ export default function Home() {
                           useSenseCheck: !prev.useSenseCheck,
                         }))
                       }
-                      className={`flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[0.6rem] font-semibold uppercase tracking-[0.2em] transition ${
+                      className={`flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.2em] transition ${
                         form.useSenseCheck
                           ? "bg-emerald-500/15 text-emerald-200"
                           : "bg-zinc-800/40 text-zinc-400"
@@ -665,7 +873,7 @@ export default function Home() {
                   <Button
                     type="submit"
                     className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-indigo-500 text-white hover:bg-indigo-400"
-                    disabled={isGenerating || isPrefilling}
+                    disabled={isGenerating || isPrefilling || !form.businessName.trim() || !form.website.trim() || !form.businessType.trim()}
                   >
                     {isGenerating ? (
                       <>
@@ -685,17 +893,30 @@ export default function Home() {
                     variant="ghost"
                     className="w-full rounded-2xl border border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
                     onClick={handleReset}
-                    disabled={(isGenerating && !hasReport) || isPrefilling}
+                    disabled={isGenerating || isPrefilling}
                   >
                     <RefreshCcw className="mr-2 h-4 w-4" />
                     Reset
                   </Button>
-                  <p className="text-[0.6rem] uppercase tracking-[0.18em] text-zinc-500">
+                  <p className="text-xs uppercase tracking-[0.18em] text-zinc-500">
                     Inputs auto-save locally; reset clears everything.
                   </p>
-                  {error ? (
-                    <p className="text-xs text-red-300">{error}</p>
-                  ) : null}
+                  {error && (
+                    <Alert variant="destructive" className="relative">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="flex items-start justify-between gap-2">
+                        <span className="flex-1">{error}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={() => setError(null)}
+                          className="h-5 w-5 shrink-0"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </div>
               </form>
             </CardContent>
@@ -716,17 +937,57 @@ export default function Home() {
                     <Tabs defaultValue="summary">
                       <TabsList className="flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
                         <TabsTrigger value="summary">Summary</TabsTrigger>
-                        <TabsTrigger value="architecture">Architecture</TabsTrigger>
-                        <TabsTrigger value="keywords">Keywords</TabsTrigger>
-                        <TabsTrigger value="site">Site audit</TabsTrigger>
-                        <TabsTrigger value="metadata">Metadata</TabsTrigger>
+                        <TabsTrigger value="architecture">
+                          Architecture{" "}
+                          {report.siteArchitecture?.length ? (
+                            <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                              {report.siteArchitecture.length}
+                            </Badge>
+                          ) : null}
+                        </TabsTrigger>
+                        <TabsTrigger value="keywords">
+                          Keywords{" "}
+                          <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                            {report.keywordOpportunities.strongestKeywords.length +
+                              report.keywordOpportunities.quickWins.length +
+                              report.keywordOpportunities.contentGaps.length +
+                              (report.keywordOpportunities.localityKeywords?.length || 0)}
+                          </Badge>
+                        </TabsTrigger>
+                        <TabsTrigger value="site">
+                          Site audit{" "}
+                          <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                            {report.targetSite.pages.filter((p) => p.status === "ok").length}
+                          </Badge>
+                        </TabsTrigger>
+                        <TabsTrigger value="metadata">
+                          Metadata{" "}
+                          <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                            {report.metadataPlan.keyPages.length + 1}
+                          </Badge>
+                        </TabsTrigger>
                         {hasContentDrafts ? (
-                          <TabsTrigger value="content">Content</TabsTrigger>
+                          <TabsTrigger value="content">
+                            Content{" "}
+                            <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                              {report.contentDrafts?.length ?? 0}
+                            </Badge>
+                          </TabsTrigger>
                         ) : null}
                         {hasRecommendations ? (
-                          <TabsTrigger value="recommendations">Actions</TabsTrigger>
+                          <TabsTrigger value="recommendations">
+                            Actions{" "}
+                            <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                              {report.recommendations?.length ?? 0}
+                            </Badge>
+                          </TabsTrigger>
                         ) : null}
-                        <TabsTrigger value="competitors">Competitors</TabsTrigger>
+                        <TabsTrigger value="competitors">
+                          Competitors{" "}
+                          <Badge variant="secondary" className="ml-1.5 text-[0.7rem]">
+                            {report.competitors.length}
+                          </Badge>
+                        </TabsTrigger>
                       </TabsList>
                       <div className="mt-4 space-y-4">
                         <TabsContent value="summary">
@@ -823,6 +1084,64 @@ export default function Home() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <DialogContent className="max-w-md border border-white/10 bg-black/90 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle>Reset Everything?</DialogTitle>
+            <DialogDescription className="text-sm text-zinc-400">
+              This will clear all form data and the generated report. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => setShowResetConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmReset}
+            >
+              Reset Everything
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showCompetitorWarning} onOpenChange={setShowCompetitorWarning}>
+        <DialogContent className="max-w-md border border-amber-500/20 bg-black/90 text-zinc-100">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-400">
+              <AlertCircle className="size-5" />
+              No Competitors Provided
+            </DialogTitle>
+            <DialogDescription className="text-sm text-zinc-400">
+              Without competitor analysis, this report will miss critical keyword gaps and
+              competitive insights. We recommend adding 3-5 competitor URLs for comprehensive
+              SEO strategy.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-6 flex justify-end gap-3">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowCompetitorWarning(false);
+                setPendingSubmit(null);
+              }}
+            >
+              Add Competitors
+            </Button>
+            <Button
+              variant="default"
+              onClick={confirmGenerateWithoutCompetitors}
+            >
+              Generate Anyway
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }
@@ -831,7 +1150,7 @@ function HeroHeader({ onReset }: { onReset: () => void }) {
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold text-white md:text-4xl">
+        <h1 className="max-w-2xl truncate text-3xl font-semibold text-white md:text-4xl">
           SEO Wizard
         </h1>
         <p className="text-sm text-zinc-500">
@@ -867,7 +1186,7 @@ function FieldGroup({
     <div className="space-y-2.5">
       <Label
         htmlFor={fieldId}
-        className="text-[0.6rem] font-semibold uppercase tracking-[0.2em] text-zinc-500"
+        className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500"
       >
         {label}
       </Label>
@@ -1099,7 +1418,7 @@ function KeywordView({ report }: { report: SeoReport }) {
           </div>
           {hasSenseCheckFlags ? (
             <div className="space-y-1.5 text-xs">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                 Filtered out
               </p>
               <ul className="space-y-1 text-zinc-300">
@@ -1116,7 +1435,7 @@ function KeywordView({ report }: { report: SeoReport }) {
           ) : null}
           {hasSenseCheckNotes ? (
             <div className="space-y-1 text-xs text-zinc-400">
-              <p className="text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-zinc-500">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-zinc-500">
                 Notes
               </p>
               <ul className="space-y-1">
@@ -1216,8 +1535,9 @@ function KeywordTable({
   headline: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-white/10">
-      <table className="min-w-full text-left text-xs text-zinc-300">
+    <ScrollArea className="w-full rounded-lg border border-white/10">
+      <div className="min-w-[640px]">
+        <table className="w-full text-left text-xs text-zinc-300">
         <thead className="bg-black/30 uppercase tracking-[0.2em] text-zinc-500">
           <tr>
             <th className="px-4 py-3">{headline}</th>
@@ -1236,13 +1556,41 @@ function KeywordTable({
               <td className="px-4 py-2 text-sm text-white">
                 {keyword.keyword}
               </td>
-              <td className="px-4 py-2">{keyword.score.toFixed(1)}</td>
+              <td className="px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="w-8 text-right">{keyword.score.toFixed(1)}</span>
+                  <div className="h-1.5 w-16 overflow-hidden rounded-full bg-zinc-800">
+                    <div
+                      className="h-full bg-indigo-400 transition-all"
+                      style={{ width: `${Math.min((keyword.score / 100) * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </td>
               <td className="px-4 py-2">{keyword.density.toFixed(2)}%</td>
               <td className="px-4 py-2">
                 {keyword.volume ? keyword.volume.toLocaleString() : "—"}
               </td>
               <td className="px-4 py-2">
-                {keyword.difficulty ? `${keyword.difficulty}` : "—"}
+                {keyword.difficulty ? (
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 text-right">{keyword.difficulty}</span>
+                    <div className="h-1.5 w-12 overflow-hidden rounded-full bg-zinc-800">
+                      <div
+                        className={`h-full transition-all ${
+                          keyword.difficulty > 70
+                            ? "bg-red-400"
+                            : keyword.difficulty > 40
+                            ? "bg-yellow-400"
+                            : "bg-emerald-400"
+                        }`}
+                        style={{ width: `${keyword.difficulty}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  "—"
+                )}
               </td>
             </tr>
           ))}
@@ -1258,14 +1606,16 @@ function KeywordTable({
           )}
         </tbody>
       </table>
-    </div>
+      </div>
+    </ScrollArea>
   );
 }
 
 function SiteAuditView({ pages }: { pages: PageAnalysis[] }) {
   return (
-    <ScrollArea className="max-h-[620px] rounded-lg border border-white/5">
-      <table className="min-w-full text-left text-xs text-zinc-300">
+    <ScrollArea className="max-h-[620px] w-full rounded-lg border border-white/5">
+      <div className="min-w-[800px]">
+        <table className="w-full text-left text-xs text-zinc-300">
         <thead className="bg-black/40 uppercase tracking-[0.2em] text-zinc-500">
           <tr>
             <th className="px-4 py-3">URL</th>
@@ -1283,8 +1633,8 @@ function SiteAuditView({ pages }: { pages: PageAnalysis[] }) {
                 className="border-t border-white/5 transition hover:bg-white/5"
               >
                 <td className="px-4 py-3 text-zinc-200">
-                  <div className="font-medium text-white">{page.titleTag}</div>
-                  <div className="text-xs text-zinc-500">{page.url}</div>
+                  <div className="max-w-xs truncate font-medium text-white">{page.titleTag}</div>
+                  <div className="max-w-xs truncate text-xs text-zinc-500">{page.url}</div>
                 </td>
                 <td className="px-4 py-3">{page.wordCount}</td>
                 <td className="px-4 py-3">
@@ -1317,6 +1667,7 @@ function SiteAuditView({ pages }: { pages: PageAnalysis[] }) {
           )}
         </tbody>
       </table>
+      </div>
     </ScrollArea>
   );
 }

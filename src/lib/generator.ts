@@ -40,7 +40,7 @@ const INPUT_SCHEMA = z.object({
     .default([]),
 });
 
-const MAX_INTERNAL_PAGES = 6;
+const MAX_INTERNAL_PAGES = 15;
 
 interface LocationContext {
   address?: string;
@@ -86,32 +86,58 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     "competitor"
   );
   const siteKeywords = aggregateKeywordUniverse([targetSite], "site");
-  let datasetKeywords = matchDatasetKeywords(input.businessType);
 
+  // Require Moz Data API for keyword intelligence
+  if (!hasMozDataApiToken) {
+    throw new Error(
+      "MOZ_DATA_API_KEY is required to generate SEO strategies. " +
+      "Without Moz keyword data, we cannot provide accurate search volume, difficulty, " +
+      "or competitive intelligence. Please configure your Moz Data API credentials."
+    );
+  }
+
+  let datasetKeywords: KeywordDatasetEntry[] = [];
   let mozKeywordNotes: string[] = [];
-  if (hasMozDataApiToken) {
-    try {
-      const mozInsights = await fetchMozKeywordInsights({
-        businessType: input.businessType,
-        additionalNotes,
-        serviceArea: input.serviceArea,
-        location: locationContext.primaryLocation,
-        competitors: input.competitors,
-        siteKeywords,
-      });
-      if (mozInsights?.datasetEntries?.length) {
-        datasetKeywords = mozInsights.datasetEntries;
-      }
-      if (mozInsights?.competitorKeywords?.length) {
-        competitorKeywords = dedupeKeywordStats([
-          competitorKeywords,
-          mozInsights.competitorKeywords,
-        ]);
-      }
-      mozKeywordNotes = mozInsights?.notes ?? [];
-    } catch (error) {
-      console.warn("[moz-keywords] Failed to load Moz keyword insights:", error);
+
+  try {
+    const mozInsights = await fetchMozKeywordInsights({
+      businessType: input.businessType,
+      additionalNotes,
+      serviceArea: input.serviceArea,
+      location: locationContext.primaryLocation,
+      competitors: input.competitors,
+      siteKeywords,
+    });
+
+    if (!mozInsights?.datasetEntries?.length) {
+      throw new Error(
+        "Moz API returned no keyword data. This could mean:\n" +
+        "1. Invalid Moz API credentials\n" +
+        "2. No relevant keywords found for this business type\n" +
+        "3. API rate limit exceeded\n\n" +
+        "Cannot generate report without keyword intelligence."
+      );
     }
+
+    datasetKeywords = mozInsights.datasetEntries;
+
+    if (mozInsights?.competitorKeywords?.length) {
+      competitorKeywords = dedupeKeywordStats([
+        competitorKeywords,
+        mozInsights.competitorKeywords,
+      ]);
+    }
+    mozKeywordNotes = mozInsights?.notes ?? [];
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("MOZ_DATA_API_KEY")) {
+      throw error; // Re-throw our validation error
+    }
+    console.error("[moz-keywords] Failed to load Moz keyword insights:", error);
+    throw new Error(
+      "Failed to retrieve Moz keyword data: " +
+      (error instanceof Error ? error.message : "Unknown error") +
+      "\n\nCannot generate report without keyword intelligence."
+    );
   }
 
   const mozMetrics = await hydrateMozMetrics([targetSite, ...competitorSnapshots], {
@@ -195,6 +221,49 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     googleBusinessProfile,
   });
 
+  // Assess data quality and generate warnings
+  const dataQualityWarnings: string[] = [];
+
+  // Check competitor analysis
+  if (input.competitors.length === 0) {
+    dataQualityWarnings.push(
+      "⚠️ No competitors analyzed - missing competitive intelligence. Add 3-5 competitor URLs for better keyword insights and gap analysis."
+    );
+  } else if (input.competitors.length < 3) {
+    dataQualityWarnings.push(
+      `⚠️ Limited competitor analysis (${input.competitors.length} competitor${input.competitors.length === 1 ? "" : "s"}). For comprehensive insights, analyze 3-5 competitors.`
+    );
+  }
+
+  // Check crawled pages
+  const crawledPages = enrichedTarget.pages.filter((p) => p.status === "ok").length;
+  if (crawledPages < 5) {
+    dataQualityWarnings.push(
+      `⚠️ Limited site content crawled (${crawledPages} page${crawledPages === 1 ? "" : "s"}). Keyword extraction may be incomplete. Ensure site is accessible and has discoverable internal links.`
+    );
+  }
+
+  // Check Moz keyword data availability
+  const mozEnrichedKeywords = datasetKeywords.filter(
+    (k) => k.volume !== undefined && k.difficulty !== undefined
+  ).length;
+  if (mozEnrichedKeywords === 0) {
+    dataQualityWarnings.push(
+      "⚠️ No Moz keyword metrics available. Search volume and difficulty estimates are missing - recommendations may be less accurate."
+    );
+  } else if (mozEnrichedKeywords < datasetKeywords.length / 2) {
+    dataQualityWarnings.push(
+      `⚠️ Partial Moz coverage (${mozEnrichedKeywords}/${datasetKeywords.length} keywords enriched). Some recommendations lack volume/difficulty data.`
+    );
+  }
+
+  // Check domain authority metrics
+  if (!enrichedTarget.metrics || !enrichedTarget.metrics.domainAuthority) {
+    dataQualityWarnings.push(
+      "⚠️ Domain authority metrics unavailable. Cannot assess competitive positioning accurately."
+    );
+  }
+
   const normalisedInput: SiteInput = {
     businessName: input.businessName,
     website: normaliseUrl(input.website),
@@ -212,6 +281,7 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     input: normalisedInput,
     targetSite: enrichedTarget,
     competitors: enrichedCompetitors,
+    dataQualityWarnings: dataQualityWarnings.length > 0 ? dataQualityWarnings : undefined,
     locality: locationContext,
     senseCheck: {
       enabled: keywordStrategy.senseCheckEnabled,
@@ -239,7 +309,7 @@ async function analyseSite(
   const crawledPages = await crawlSite({
     startUrl: url,
     limit,
-    maxDepth: options.includeInternal ? 2 : 0,
+    maxDepth: options.includeInternal ? 3 : 0,
     sameDomainOnly: true,
     respectRobots: true,
   });
@@ -1468,7 +1538,19 @@ function isKeywordRelevantForContext(
   return false;
 }
 
-const EXCLUDED_KEYWORDS = new Set(["", "nbsp", "nbsp nbsp"]);
+const EXCLUDED_KEYWORDS = new Set([
+  "",
+  "nbsp",
+  "nbsp nbsp",
+  "technical storage",
+  "storage access",
+  "strictly necessary",
+  "legitimate interest",
+  "cookie consent",
+  "cookie preferences",
+  "access",
+  "preferences",
+]);
 
 function formatKeywordDisplay(value: string): string {
   return value

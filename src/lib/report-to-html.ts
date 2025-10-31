@@ -133,6 +133,34 @@ export function renderReportHtml(report: SeoReport): string {
         background: rgba(109, 139, 255, 0.12);
         border: 1px solid rgba(109, 139, 255, 0.2);
       }
+      .warning-box {
+        padding: 1.5rem 1.75rem;
+        border-radius: 12px;
+        background: rgba(251, 191, 36, 0.08);
+        border: 1px solid rgba(251, 191, 36, 0.25);
+        margin-bottom: 2rem;
+      }
+      .warning-box h3 {
+        margin: 0 0 0.75rem 0;
+        font-size: 1.1rem;
+        color: var(--warning);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .warning-box ul {
+        margin: 0;
+        padding-left: 1.25rem;
+        list-style: none;
+      }
+      .warning-box li {
+        margin-bottom: 0.65rem;
+        padding-left: 0;
+      }
+      .warning-box li::before {
+        content: '⚠️';
+        margin-right: 0.5rem;
+      }
       code {
         font-family: "Fira Code", "JetBrains Mono", monospace;
         background: rgba(255, 255, 255, 0.08);
@@ -140,11 +168,45 @@ export function renderReportHtml(report: SeoReport): string {
         border-radius: 6px;
         font-size: 0.9rem;
       }
+      .source-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.15rem 0.45rem;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-left: 0.5rem;
+        vertical-align: middle;
+      }
+      .source-badge.moz {
+        background: rgba(74, 222, 128, 0.15);
+        color: var(--success);
+        border: 1px solid rgba(74, 222, 128, 0.3);
+      }
+      .source-badge.competitor {
+        background: rgba(251, 191, 36, 0.15);
+        color: var(--warning);
+        border: 1px solid rgba(251, 191, 36, 0.3);
+      }
+      .source-badge.site {
+        background: rgba(109, 139, 255, 0.15);
+        color: var(--accent);
+        border: 1px solid rgba(109, 139, 255, 0.3);
+      }
+      .source-badge.blended {
+        background: rgba(148, 163, 184, 0.15);
+        color: #94a3b8;
+        border: 1px solid rgba(148, 163, 184, 0.3);
+      }
     </style>
   </head>
   <body>
     <div class="container">
       ${renderHeader(report, generatedDate)}
+      ${renderDataQualityWarnings(report)}
       ${renderBusinessContext(report)}
       ${renderKeywordSection(report)}
       ${renderSiteAudit(report)}
@@ -157,6 +219,27 @@ export function renderReportHtml(report: SeoReport): string {
     </div>
   </body>
 </html>`;
+}
+
+function renderDataQualityWarnings(report: SeoReport) {
+  if (!report.dataQualityWarnings || report.dataQualityWarnings.length === 0) {
+    return "";
+  }
+
+  const warningItems = report.dataQualityWarnings
+    .map((warning) => {
+      // Remove the emoji from the warning text since we're adding it via CSS
+      const warningText = warning.replace(/^⚠️\s*/, "");
+      return `<li>${escapeHtml(warningText)}</li>`;
+    })
+    .join("");
+
+  return `<div class="warning-box">
+    <h3>⚠️ Data Quality Notice</h3>
+    <ul>
+      ${warningItems}
+    </ul>
+  </div>`;
 }
 
 function renderBusinessContext(report: SeoReport) {
@@ -238,6 +321,15 @@ function renderKeywordSection(report: SeoReport) {
   return `<section>
     <h2>1. Keyword Growth Priorities</h2>
     ${renderSenseCheckSummary(report)}
+    <div style="margin-bottom: 1.5rem; padding: 0.75rem 1rem; background: rgba(255,255,255,0.03); border-radius: 8px; font-size: 0.85rem;">
+      <strong style="display: block; margin-bottom: 0.5rem;">Data Source Legend:</strong>
+      <div style="display: flex; flex-wrap: wrap; gap: 1rem;">
+        <span><span class="source-badge moz">Moz</span> Validated by Moz Keyword Explorer</span>
+        <span><span class="source-badge competitor">Competitor</span> Found in competitor analysis</span>
+        <span><span class="source-badge site">Site</span> Extracted from your site</span>
+        <span><span class="source-badge blended">Multi</span> Multiple sources</span>
+      </div>
+    </div>
     <div class="grid three">
       <div>
         <h3>Primary Demand Signals</h3>
@@ -337,22 +429,38 @@ function renderKeywordList(keywords: KeywordStat[]) {
   }
   return `<ul>
     ${keywords
-      .map(
-        (keyword) =>
-          `<li><strong>${escapeHtml(keyword.keyword)}</strong> &middot; signal score ${keyword.score.toFixed(
-            1
-          )}${
-            typeof keyword.volume === "number"
-              ? ` &middot; ~${Math.round(keyword.volume).toLocaleString()} searches/mo`
-              : ""
-          }${
-            typeof keyword.difficulty === "number"
-              ? ` &middot; difficulty ${Math.round(keyword.difficulty)}`
-              : ""
-          } &middot; avg density ${keyword.density.toFixed(2)}%</li>`
-      )
+      .map((keyword) => {
+        const sourceBadge = renderSourceBadge(keyword.source);
+        return `<li><strong>${escapeHtml(keyword.keyword)}</strong>${sourceBadge} &middot; signal score ${keyword.score.toFixed(
+          1
+        )}${
+          typeof keyword.volume === "number"
+            ? ` &middot; ~${Math.round(keyword.volume).toLocaleString()} searches/mo`
+            : ""
+        }${
+          typeof keyword.difficulty === "number"
+            ? ` &middot; difficulty ${Math.round(keyword.difficulty)}`
+            : ""
+        } &middot; avg density ${keyword.density.toFixed(2)}%</li>`;
+      })
       .join("")}
   </ul>`;
+}
+
+function renderSourceBadge(source?: "page" | "site" | "competitor" | "dataset" | "blended"): string {
+  if (!source) return "";
+
+  const labels: Record<typeof source, string> = {
+    page: "Site",
+    site: "Site",
+    competitor: "Competitor",
+    dataset: "Moz",
+    blended: "Multi",
+  };
+
+  const cssClass = source === "dataset" ? "moz" : source === "page" || source === "site" ? "site" : source;
+
+  return `<span class="source-badge ${cssClass}">${labels[source]}</span>`;
 }
 
 function renderSiteAudit(report: SeoReport) {

@@ -1,6 +1,15 @@
-import type { KeywordDatasetEntry, KeywordStat } from "./types";
+import type { KeywordStat } from "./types";
+import type { KeywordDatasetEntry } from "./keyword-dataset";
 import { callMozApi, MozApiError, mozRequestAvailable } from "./moz-client";
 import { getDomain } from "./url";
+import {
+  MOZ_MAX_SEEDS,
+  MOZ_SUGGESTION_LIMIT,
+  MOZ_METRIC_LIMIT,
+  MOZ_COMPETITOR_LIMIT,
+  MOZ_MAX_COMPETITORS,
+  MOZ_BATCH_SIZE,
+} from "./constants";
 
 interface FetchMozKeywordInsightsArgs {
   businessType: string;
@@ -37,11 +46,11 @@ interface RankingKeywordItem {
   volume?: number;
 }
 
-const MAX_SEEDS = 4;
-const SUGGESTION_LIMIT = 10;
-const METRIC_LIMIT = 40;
-const COMPETITOR_LIMIT = 10;
-const MAX_COMPETITORS = 3;
+const MAX_SEEDS = MOZ_MAX_SEEDS;
+const SUGGESTION_LIMIT = MOZ_SUGGESTION_LIMIT;
+const METRIC_LIMIT = MOZ_METRIC_LIMIT;
+const COMPETITOR_LIMIT = MOZ_COMPETITOR_LIMIT;
+const MAX_COMPETITORS = MOZ_MAX_COMPETITORS;
 
 const NAVIGATION_KEYWORDS = new Set([
   "home",
@@ -183,33 +192,46 @@ export async function fetchMozKeywordInsights(
   );
   const metricsMap = new Map<string, MozKeywordMetrics>();
 
-  for (const keyword of uniqueKeywords) {
-    try {
-      const result = await callMozApi<{
-        keyword_metrics: MozKeywordMetrics;
-      }>("data.keyword.metrics.fetch", {
-        data: {
-          serp_query: {
-            keyword,
-            locale: localeContext.locale,
-            device: "desktop",
-            engine: "google",
-            vicinity: localeContext.vicinity ?? "",
+  // Batch API calls for better performance
+  const BATCH_SIZE = MOZ_BATCH_SIZE;
+  for (let i = 0; i < uniqueKeywords.length; i += BATCH_SIZE) {
+    const batch = uniqueKeywords.slice(i, i + BATCH_SIZE);
+    const results = await Promise.allSettled(
+      batch.map(async (keyword) => {
+        const result = await callMozApi<{
+          keyword_metrics: MozKeywordMetrics;
+        }>("data.keyword.metrics.fetch", {
+          data: {
+            serp_query: {
+              keyword,
+              locale: localeContext.locale,
+              device: "desktop",
+              engine: "google",
+              vicinity: localeContext.vicinity ?? "",
+            },
           },
-        },
-      });
-      metricsMap.set(keyword.toLowerCase(), result.keyword_metrics);
-    } catch (error) {
-      if (error instanceof MozApiError && error.status === 404) {
-        notes.push(`Moz has no metrics for "${keyword}".`);
+        });
+        return { keyword, metrics: result.keyword_metrics };
+      })
+    );
+
+    results.forEach((result, index) => {
+      const keyword = batch[index];
+      if (result.status === "fulfilled") {
+        metricsMap.set(keyword.toLowerCase(), result.value.metrics);
       } else {
-        notes.push(
-          `Failed to load Moz metrics for "${keyword}": ${
-            error instanceof Error ? error.message : "unknown error"
-          }`
-        );
+        const error = result.reason;
+        if (error instanceof MozApiError && error.status === 404) {
+          notes.push(`Moz has no metrics for "${keyword}".`);
+        } else {
+          notes.push(
+            `Failed to load Moz metrics for "${keyword}": ${
+              error instanceof Error ? error.message : "unknown error"
+            }`
+          );
+        }
       }
-    }
+    });
   }
 
   const datasetEntries: KeywordDatasetEntry[] = [];
@@ -222,7 +244,7 @@ export async function fetchMozKeywordInsights(
       keyword,
       volume: metrics.volume ?? 0,
       difficulty: metrics.difficulty ?? 0,
-      intent: inferIntentFromKeyword(keyword),
+      intent: inferIntentFromKeyword(keyword) ?? "informational",
     });
   }
 
@@ -235,9 +257,82 @@ export async function fetchMozKeywordInsights(
       keyword: seed,
       volume: 0,
       difficulty: 30,
-      intent: inferIntentFromKeyword(seed),
+      intent: inferIntentFromKeyword(seed) ?? "informational",
     });
   });
+
+  // Generate local keyword variants for keywords that don't already contain location
+  if (localeContext.primaryLocation) {
+    const locationTerm = localeContext.primaryLocation.toLowerCase();
+    const localVariants = new Set<string>();
+
+    // For each keyword without location, create a local variant
+    datasetEntries.forEach((entry) => {
+      const keywordLower = entry.keyword.toLowerCase();
+      // Skip if already contains location term
+      if (keywordLower.includes(locationTerm)) return;
+      // Skip navigation keywords
+      if (isNavigationKeyword(keywordLower)) return;
+      // Skip very long keywords (likely already specific)
+      if (entry.keyword.split(" ").length > 4) return;
+
+      // Create local variant
+      const localVariant = `${entry.keyword.toLowerCase()} ${locationTerm}`;
+      localVariants.add(localVariant);
+    });
+
+    // Fetch metrics for local variants in batches
+    if (localVariants.size > 0) {
+      const localVariantArray = Array.from(localVariants).slice(0, METRIC_LIMIT);
+      const localMetricsMap = new Map<string, MozKeywordMetrics>();
+
+      for (let i = 0; i < localVariantArray.length; i += MOZ_BATCH_SIZE) {
+        const batch = localVariantArray.slice(i, i + MOZ_BATCH_SIZE);
+        const results = await Promise.allSettled(
+          batch.map(async (keyword) => {
+            const result = await callMozApi<{
+              keyword_metrics: MozKeywordMetrics;
+            }>("data.keyword.metrics.fetch", {
+              data: {
+                serp_query: {
+                  keyword,
+                  locale: localeContext.locale,
+                  device: "desktop",
+                  engine: "google",
+                  vicinity: localeContext.vicinity ?? "",
+                },
+              },
+            });
+            return { keyword, metrics: result.keyword_metrics };
+          })
+        );
+
+        results.forEach((result, index) => {
+          const keyword = batch[index];
+          if (result.status === "fulfilled") {
+            localMetricsMap.set(keyword.toLowerCase(), result.value.metrics);
+          }
+        });
+      }
+
+      // Add local variants with metrics to dataset
+      localVariantArray.forEach((localKeyword) => {
+        const metrics = localMetricsMap.get(localKeyword);
+        if (metrics && metrics.volume && metrics.volume > 0) {
+          datasetEntries.push({
+            keyword: localKeyword,
+            volume: metrics.volume ?? 0,
+            difficulty: metrics.difficulty ?? 0,
+            intent: inferIntentFromKeyword(localKeyword) ?? "informational",
+          });
+        }
+      });
+
+      notes.push(
+        `Generated ${localMetricsMap.size} local keyword variants for "${localeContext.primaryLocation}"`
+      );
+    }
+  }
 
   return {
     datasetEntries: dedupeDatasetEntries(datasetEntries),
@@ -356,7 +451,7 @@ function rankingKeywordToStat(item: RankingKeywordItem): KeywordStat {
     density: 0,
     volume: item.volume ?? undefined,
     difficulty: item.difficulty ?? undefined,
-    intent: inferIntentFromKeyword(item.keyword),
+    intent: inferIntentFromKeyword(item.keyword) ?? "informational",
     source: "competitor",
   };
 }

@@ -14,7 +14,7 @@ export async function fetchPageHtml(
       signal: controller.signal,
       headers: {
         "user-agent":
-          "SEO Wizard Bot/1.0 (+https://github.com/deannewton/seo-wizard)",
+          "Mozilla/5.0 (compatible; SEOWizardBot/1.0; +SEO Analysis Tool)",
         accept:
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },

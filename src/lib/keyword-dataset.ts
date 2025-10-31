@@ -1,3 +1,17 @@
+/**
+ * DEPRECATED: These keyword templates are NO LONGER used as fallback data.
+ *
+ * As of the latest update, SEO Wizard REQUIRES Moz Data API to generate reports.
+ * Generic templates were causing reports to contain irrelevant keywords that didn't
+ * match the actual business (e.g., recommending "sunday roast" for nightclubs).
+ *
+ * This file is kept for reference only and may be removed in future versions.
+ * All keyword data now comes from:
+ * 1. Moz Keyword Explorer API (required)
+ * 2. Actual site crawl
+ * 3. Competitor analysis
+ */
+
 export type KeywordIntent = "informational" | "navigational" | "transactional" | "commercial";
 
 export interface KeywordDatasetEntry {

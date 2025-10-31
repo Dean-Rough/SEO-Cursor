@@ -70,6 +70,7 @@ export interface SeoReport {
   input: SiteInput;
   targetSite: SiteSnapshot;
   competitors: SiteSnapshot[];
+  dataQualityWarnings?: string[];
   locality: {
     address?: string;
     serviceArea?: string;

@@ -34,6 +34,17 @@ const DEFAULT_EXCLUDED_KEYWORD_TOKENS = [
   "wrapper",
   "canvas",
   "component",
+  "technical",
+  "storage",
+  "preferences",
+  "nbsp",
+  "strictly",
+  "necessary",
+  "legitimate",
+  "interest",
+  "cookie",
+  "consent",
+  "access",
 ];
 
 const DEFAULT_EXCLUDED_KEYWORDS = [
@@ -47,6 +58,13 @@ const DEFAULT_EXCLUDED_KEYWORDS = [
   "column grid",
   "edit section",
   "section edit",
+  "technical storage",
+  "storage access",
+  "strictly necessary",
+  "legitimate interest",
+  "nbsp nbsp",
+  "cookie consent",
+  "cookie preferences",
 ];
 
 let runtimeExcludedTokens = new Set<string>(DEFAULT_EXCLUDED_KEYWORD_TOKENS);

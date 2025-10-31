@@ -40,7 +40,7 @@ interface ContentResponse {
   }>;
 }
 
-const MODEL = "gpt-5";
+const MODEL = "gpt-4o";
 
 export async function generateContentDrafts(
   briefs: ContentBrief[],

@@ -105,7 +105,8 @@ function extractWebsite(data: SchemaRecord | undefined): string | undefined {
   if (!data) return undefined;
   const url = data["url"];
   if (typeof url === "string") return url.trim();
-  const sameAs = normaliseArray<string>(data["sameAs"] ?? []);
+  const sameAsValue = data["sameAs"];
+  const sameAs = normaliseArray<any>(sameAsValue !== undefined ? sameAsValue : []);
   const website = sameAs.find((entry) =>
     typeof entry === "string" ? /^https?:\/\//i.test(entry) : false
   );
@@ -239,7 +240,7 @@ export async function enrichBusinessProfile(params: {
         authorization: `Bearer ${env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "gpt-5",
+        model: "gpt-4o",
         response_format: { type: "json_object" },
         messages: [
           {
