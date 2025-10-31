@@ -1,3 +1,11 @@
+export interface EnhancedFeatures {
+  enableEnhancedIntelligence?: boolean;  // Phase 1
+  enableStrategy?: boolean;              // Phase 2
+  enableBlueprints?: boolean;            // Phase 3
+  enableAIGeneration?: boolean;          // Phase 4 (requires OpenAI)
+  enableEnhancedReport?: boolean;        // Phase 5
+}
+
 export interface SiteInput {
   businessName: string;
   website: string;
@@ -8,6 +16,7 @@ export interface SiteInput {
   googleBusinessProfile?: string;
   additionalNotes?: string;
   useSenseCheck?: boolean;
+  enhancedFeatures?: EnhancedFeatures;
 }
 
 export interface KeywordStat {
@@ -98,6 +107,68 @@ export interface SeoReport {
   contentDrafts?: PageContentDraft[];
   siteArchitecture: SiteArchitectureEntry[];
   recommendations: string[];
+
+  // New Phase 1: Enhanced Intelligence (optional)
+  intelligence?: {
+    targetSiteAnalysis: {
+      pageTypeBreakdown: Record<string, number>;
+      averageContentDepth: {
+        wordCount: number;
+        h2Count: number;
+        imageCount: number;
+      };
+      ctaPresence: number; // percentage of pages with CTAs
+      schemaMarkupPresence: number; // percentage with schema
+    };
+    competitorBenchmarks: {
+      averageWordCount: number;
+      averageImageCount: number;
+      averageSectionCount: number;
+      commonSchemaTypes: string[];
+    };
+    contentGaps: Array<{
+      suggestedUrl: string;
+      pageType: string;
+      competitorCount: number;
+      priority: number;
+    }>;
+  };
+
+  // New Phase 2: Strategy (optional)
+  strategy?: {
+    keywordClusters: Array<{
+      name: string;
+      primaryKeyword: string;
+      totalVolume: number;
+      averageDifficulty: number;
+      keywords: string[];
+    }>;
+    pageStrategies: Array<{
+      url: string;
+      pageType: string;
+      primaryKeyword: string;
+      secondaryKeywords: string[];
+      priority: number;
+      status: 'create' | 'optimize' | 'keep';
+      contentTargets?: {
+        wordCount: number;
+        sectionCount: number;
+        imageCount: number;
+        includeFAQ: boolean;
+      };
+    }>;
+    internalLinkingMap: Array<{
+      fromUrl: string;
+      toUrl: string;
+      anchorText: string;
+    }>;
+  };
+
+  // New Phase 3: Blueprints (optional) - will use PageBlueprint from ./blueprints/types
+  blueprints?: any[]; // Typed as any[] for now, will import PageBlueprint later
+
+  // New Phase 4: Generated Content (optional) - will use GeneratedPageContent from ./generation/types
+  generatedContent?: any[]; // Typed as any[] for now, will import later
 }
 
 export interface ContentSection {
