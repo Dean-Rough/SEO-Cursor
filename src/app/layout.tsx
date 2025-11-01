@@ -18,7 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <head>
-        <link rel="stylesheet" href="https://use.typekit.net/xqf3weh.css" />
+        <link rel="stylesheet" href="https://use.typekit.net/cll6ajh.css" />
       </head>
       <body
         suppressHydrationWarning
