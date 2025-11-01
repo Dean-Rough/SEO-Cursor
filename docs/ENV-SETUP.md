@@ -167,12 +167,12 @@ Different features require different API keys:
 
 # OpenAI API Key (for AI content generation - Phase 4)
 # Get from: https://platform.openai.com/api-keys
-OPENAI_API_KEY=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
+OPENAI_API_KEY=your_openai_api_key_here
 
 # Moz Data API Key (for keyword data - Required)
 # Get from: https://moz.com/products/api/keys
 # Format: Base64 encoded "mozscape-AccessID:SecretKey"
-MOZ_DATA_API_KEY=bW96c2NhcGUtR3JwUk43WnhnWTozd1BOR2ljMjFabGxpbzFyUmtSNDlNTEs1cGYxd2daWg==
+MOZ_DATA_API_KEY=your_base64_encoded_moz_credentials_here
 ```
 
 ---
