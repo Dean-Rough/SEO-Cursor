@@ -116,84 +116,188 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   * APPLE-QUALITY TYPE SYSTEM
+   * Inspired by SF Pro, Human Interface Guidelines
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+  html {
+    font-size: 17px; /* Apple's base */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-size: 16px; /* Base size */
+    font-family: "degular-display", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 400;
+    font-size: 1rem; /* 17px */
+    line-height: 1.47; /* Apple's magic ratio */
+    letter-spacing: -0.022em; /* Optical spacing */
+    text-rendering: optimizeLegibility;
   }
 
-  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   * CAST-IRON TYPE SYSTEM - Degular Display
-   * 5 styles only, all sentence case, consistent letter spacing
-   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
-
-  /* TYPE 1: Display Heading (h1 only) */
+  /* LARGE TITLE - Hero/Display */
   h1 {
-    font-family: "degular-display", sans-serif;
-    font-weight: 900; /* Black */
-    font-size: 48px;
+    font-weight: 700;
+    font-size: 2.353rem; /* 40px */
     line-height: 1.1;
-    letter-spacing: -0.01em;
-    text-transform: none; /* Sentence case */
+    letter-spacing: -0.022em;
+    margin: 0;
+    padding: 0;
   }
 
-  /* TYPE 2: Section Heading (h2, h3) */
-  h2, h3 {
-    font-family: "degular-display", sans-serif;
-    font-weight: 700; /* Bold */
-    font-size: 24px;
+  /* TITLE 1 - Section headers */
+  h2 {
+    font-weight: 700;
+    font-size: 1.647rem; /* 28px */
+    line-height: 1.143;
+    letter-spacing: -0.022em;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* TITLE 2 - Subsection headers */
+  h3 {
+    font-weight: 600;
+    font-size: 1.294rem; /* 22px */
+    line-height: 1.273;
+    letter-spacing: -0.022em;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* TITLE 3 - Card headers */
+  h4 {
+    font-weight: 600;
+    font-size: 1.176rem; /* 20px */
     line-height: 1.3;
-    letter-spacing: -0.01em;
-    text-transform: none; /* Sentence case */
+    letter-spacing: -0.022em;
+    margin: 0;
+    padding: 0;
   }
 
-  /* TYPE 3: Body Text (paragraphs, lists) */
-  p, li, blockquote, td, th {
-    font-family: "degular-display", sans-serif;
-    font-weight: 400; /* Regular */
-    font-size: 18px;
-    line-height: 1.6;
-    letter-spacing: -0.01em;
-    text-transform: none;
+  /* BODY - Primary text */
+  p, li, blockquote, td, th, div {
+    font-weight: 400;
+    font-size: 1rem; /* 17px */
+    line-height: 1.47;
+    letter-spacing: -0.022em;
   }
 
-  /* TYPE 4: Buttons & CTAs */
-  button, [role="button"], .btn {
-    font-family: "degular-display", sans-serif;
-    font-weight: 700; /* Bold */
-    font-size: 18px;
+  /* CALLOUT - Emphasized text */
+  .callout, strong, b {
+    font-weight: 600;
+    font-size: 1rem; /* 17px */
+    line-height: 1.47;
+    letter-spacing: -0.022em;
+  }
+
+  /* SUBHEADLINE - De-emphasized */
+  .subheadline, small {
+    font-weight: 400;
+    font-size: 0.882rem; /* 15px */
+    line-height: 1.33;
+    letter-spacing: -0.022em;
+    opacity: 0.7;
+  }
+
+  /* FOOTNOTE - Legal/meta */
+  .footnote, .text-xs {
+    font-weight: 400;
+    font-size: 0.765rem; /* 13px */
+    line-height: 1.385;
+    letter-spacing: -0.022em;
+    opacity: 0.6;
+  }
+
+  /* CAPTION 1 - Labels (important) */
+  label, .label {
+    font-weight: 500;
+    font-size: 0.765rem; /* 13px */
+    line-height: 1.385;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    opacity: 0.5;
+    display: block;
+    margin-bottom: 0.5rem;
+  }
+
+  /* CAPTION 2 - Badges/pills */
+  .badge, .pill {
+    font-weight: 600;
+    font-size: 0.765rem; /* 13px */
     line-height: 1.2;
-    letter-spacing: -0.01em;
-    text-transform: none; /* Sentence case */
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  /* TYPE 5: Input & Labels */
-  input, textarea, select, label {
-    font-family: "degular-display", sans-serif;
-    font-weight: 400; /* Regular */
-    font-size: 16px;
-    line-height: 1.5;
-    letter-spacing: -0.01em;
-    text-transform: none;
+  /* BUTTONS */
+  button, [role="button"], .btn {
+    font-weight: 600;
+    font-size: 1rem; /* 17px */
+    line-height: 1.2;
+    letter-spacing: -0.022em;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.75rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* INPUTS */
+  input, textarea, select {
+    font-weight: 400;
+    font-size: 1rem; /* 17px */
+    line-height: 1.47;
+    letter-spacing: -0.022em;
+    padding: 0.75rem 1rem;
+    border-radius: 0.75rem;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  input::placeholder, textarea::placeholder {
+    opacity: 0.35;
+    font-weight: 400;
   }
 
   /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   * UTILITY OVERRIDES
+   * SPACING SYSTEM (8pt grid)
    * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /* Small text (metadata, captions) - use sparingly */
-  small, .text-sm, .text-xs {
-    font-size: 14px;
-    line-height: 1.5;
-    letter-spacing: -0.01em;
-  }
+  h1 { margin-bottom: 1.5rem; }
+  h2 { margin-bottom: 1rem; margin-top: 2rem; }
+  h3 { margin-bottom: 0.75rem; margin-top: 1.5rem; }
+  h4 { margin-bottom: 0.5rem; margin-top: 1rem; }
+  p { margin-bottom: 1rem; }
 
-  /* Prevent weight inheritance issues */
-  strong, b {
-    font-weight: 700;
-  }
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   * FORCE CONSISTENCY - Nuclear option
+   * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
-  /* Ensure consistent spacing */
   * {
-    letter-spacing: -0.01em;
+    letter-spacing: -0.022em !important;
+    font-family: "degular-display", -apple-system, BlinkMacSystemFont, sans-serif !important;
+  }
+
+  /* Kill Tailwind size overrides */
+  .text-sm { font-size: 0.882rem !important; }
+  .text-xs { font-size: 0.765rem !important; }
+  .text-base { font-size: 1rem !important; }
+  .text-lg { font-size: 1.176rem !important; }
+  .text-xl { font-size: 1.294rem !important; }
+  .text-2xl { font-size: 1.647rem !important; }
+  .text-3xl { font-size: 2.353rem !important; }
+
+  /* Kill text-transform overrides */
+  .uppercase { text-transform: none !important; }
+  .lowercase { text-transform: none !important; }
+  .capitalize { text-transform: none !important; }
+
+  /* Exception: Only badges/labels can be uppercase */
+  label, .label, .badge, .pill {
+    text-transform: uppercase !important;
   }
 }
