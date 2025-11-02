@@ -7,7 +7,14 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
     <textarea
       data-slot="textarea"
       className={cn(
-        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "w-full min-h-[64px] px-[var(--space-4)] py-[12px] rounded-lg border border-[var(--border-default)] bg-[var(--bg-base)] text-base text-[var(--text-primary)] shadow-sm transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-out)] outline-none resize-y",
+        "placeholder:text-[var(--text-tertiary)]",
+        "hover:border-[var(--border-strong)]",
+        "focus:border-[var(--primary-600)] focus:outline-[2px] focus:outline-[var(--primary-600)] focus:outline-offset-0",
+        "disabled:cursor-not-allowed disabled:opacity-50",
+        "selection:bg-[var(--primary-600)] selection:text-white",
+        "aria-[invalid=true]:border-[var(--error)] aria-[invalid=true]:focus:outline-[var(--error)]",
+        "md:text-sm",
         className
       )}
       {...props}

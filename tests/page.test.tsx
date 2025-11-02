@@ -6,8 +6,12 @@ import Home from "@/app/page";
 describe("Home page", () => {
   it("renders hero content", () => {
     render(<Home />);
-    expect(screen.getByText(/SEO Wizard/i)).toBeInTheDocument();
+    // Verify simplified header badge exists
+    const header = screen.getByRole('banner');
+    expect(header).toBeInTheDocument();
+    // Verify form inputs are rendered
     expect(screen.getByLabelText(/Business name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Website/i)).toBeInTheDocument();
   });
 
   it("adds competitor fields", async () => {

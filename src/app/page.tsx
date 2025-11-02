@@ -87,7 +87,7 @@ import { cn } from "@/lib/utils";
 const PROGRESS_MESSAGES = [
   "Crawling the target site map…",
   "Profiling competitor intent clusters…",
-  "Pulling Moz authority and Mozscape metrics…",
+  "Gathering keywords from Google + Claude AI…",
   "Scoring keyword opportunities…",
   "Drafting metadata and content playbooks…",
 ];
@@ -185,11 +185,6 @@ export default function Home() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showCompetitorWarning, setShowCompetitorWarning] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState<(() => void) | null>(null);
-  const [mozStatus, setMozStatus] = useState<{
-    isValid: boolean;
-    hasCredits: boolean;
-    error?: string;
-  } | null>(null);
   const copyTimeout = useRef<NodeJS.Timeout | null>(null);
   const progressInterval = useRef<NodeJS.Timeout | null>(null);
   const toast = useToast();
@@ -224,28 +219,7 @@ export default function Home() {
     return hasEnhancedData ? generateEnhancedReport(report) : renderReportHtml(report);
   }, [report]);
 
-  // Check Moz API status on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    fetch("/api/health/moz")
-      .then((res) => res.json())
-      .then((data) => {
-        setMozStatus({
-          isValid: data.isValid ?? false,
-          hasCredits: data.hasCredits ?? false,
-          error: data.error,
-        });
-      })
-      .catch((err) => {
-        console.warn("Failed to check Moz status", err);
-        setMozStatus({
-          isValid: false,
-          hasCredits: false,
-          error: "Unable to verify Moz API status",
-        });
-      });
-  }, []);
+  // No longer checking Moz - using free sources instead!
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -766,7 +740,7 @@ const latestActivity = activityLog[0];
         {!hasReport ? (
           // STAGE 1: Input Form Only - Centered, focused layout
           <div className="fade-in mx-auto w-full max-w-[800px] px-6 pb-24 pt-12 md:px-10">
-            <HeroHeader mozStatus={mozStatus} />
+            <HeroHeader />
             <div className="mt-6">
               <ProgressTicker
                 message={generationMessage}
@@ -975,7 +949,7 @@ const latestActivity = activityLog[0];
                           AI sense check
                         </p>
                         <p className="text-xs text-zinc-500">
-                          Filter Moz data and AI output to keep irrelevant keywords out of your plan.
+                          Filter keyword data using Claude AI to keep irrelevant keywords out of your plan.
                         </p>
                       </div>
                       <button
@@ -1100,15 +1074,6 @@ const latestActivity = activityLog[0];
                       Reset
                     </Button>
 
-                    {mozStatus && !mozStatus.hasCredits && (
-                      <Alert variant="warning" className="relative border-amber-400/30 bg-amber-500/10">
-                        <AlertTriangle className="h-4 w-4 text-amber-300" />
-                        <AlertDescription className="text-sm text-amber-100">
-                          <strong>Moz API Limited:</strong> {mozStatus.error || "Keyword data and metrics will be unavailable."}
-                        </AlertDescription>
-                      </Alert>
-                    )}
-
                     <p className="text-xs text-zinc-500">
                       Inputs auto-save to your browser. Reset clears everything.
                     </p>
@@ -1138,7 +1103,7 @@ const latestActivity = activityLog[0];
         ) : (
           // STAGE 2: Report Display - Full Width
           <div className="fade-in mx-auto w-full max-w-[1400px] px-6 pb-24 pt-12 md:px-10">
-            <HeroHeader mozStatus={mozStatus} />
+            <HeroHeader />
 
             <div className="mt-6 mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="flex-1">
@@ -1448,11 +1413,7 @@ function EmptyState() {
   );
 }
 
-function HeroHeader({
-  mozStatus,
-}: {
-  mozStatus: { isValid: boolean; hasCredits: boolean; error?: string } | null;
-}) {
+function HeroHeader() {
   return (
     <header className="mb-8 flex items-center justify-between gap-4">
       <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em] text-indigo-200">
@@ -1460,39 +1421,19 @@ function HeroHeader({
         <span>WIZARD</span>
       </div>
 
-      {mozStatus && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className={cn(
-                "flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em]",
-                mozStatus.isValid && mozStatus.hasCredits
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
-                  : "border-rose-400/30 bg-rose-500/10 text-rose-200"
-              )}
-            >
-              <span
-                className={cn(
-                  "h-1.5 w-1.5 rounded-full",
-                  mozStatus.isValid && mozStatus.hasCredits
-                    ? "bg-emerald-400"
-                    : "bg-rose-400"
-                )}
-              />
-              <span>
-                {mozStatus.isValid && mozStatus.hasCredits ? "MOZ OK" : "MOZ"}
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p className="text-xs">
-              {mozStatus.isValid && mozStatus.hasCredits
-                ? "Moz API connected and has credits"
-                : mozStatus.error || "Moz API unavailable"}
-            </p>
-          </TooltipContent>
-        </Tooltip>
-      )}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-200">
+            <Sparkles className="h-3 w-3" />
+            <span>FREE</span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>
+          <p className="text-xs">
+            Using free keyword research sources: Google Autocomplete, People Also Ask, and Claude AI
+          </p>
+        </TooltipContent>
+      </Tooltip>
     </header>
   );
 }
@@ -1799,87 +1740,7 @@ function SummaryView({ report }: { report: SeoReport }) {
         </div>
       </div>
 
-      {metrics ? (
-        <div className="ds-card lg:col-span-2">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white mb-2">
-              Authority profile
-            </h3>
-            <p className="text-sm text-zinc-400">
-              Signals pulled from Moz to benchmark strength and risk.
-            </p>
-          </div>
-          <div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AuthorityMetric
-                label="Domain authority"
-                value={metrics.domainAuthority !== undefined ? `${metrics.domainAuthority}` : "—"}
-              />
-              <AuthorityMetric
-                label="Page authority"
-                value={metrics.pageAuthority !== undefined ? `${metrics.pageAuthority}` : "—"}
-              />
-              <AuthorityMetric
-                label="Linking root domains"
-                value={
-                  metrics.linkingDomains !== undefined
-                    ? metrics.linkingDomains.toLocaleString()
-                    : "—"
-                }
-              />
-              <AuthorityMetric
-                label="Spam score"
-                value={
-                  metrics.spamScore !== undefined ? `${metrics.spamScore}%` : "—"
-                }
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {report.mozUsage && report.mozUsage.totalRows > 0 && (
-        <div className="ds-card">
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-white mb-2">
-              Moz API Usage
-            </h3>
-            <p className="text-sm text-zinc-400">
-              Credit consumption breakdown for this strategy generation.
-            </p>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center gap-4">
-              <div className="text-3xl font-bold text-indigo-200">
-                {report.mozUsage.totalRows.toLocaleString()}
-              </div>
-              <div className="text-sm text-zinc-400">
-                rows consumed
-              </div>
-            </div>
-            <div className="space-y-2">
-              {report.mozUsage.breakdown.map((item) => (
-                <div
-                  key={item.method}
-                  className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-4 py-2 text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <code className="rounded bg-white/10 px-2 py-1 text-xs font-mono text-zinc-300">
-                      {item.method}
-                    </code>
-                    <span className="text-zinc-500">
-                      ×{item.count} {item.count === 1 ? "call" : "calls"}
-                    </span>
-                  </div>
-                  <div className="font-semibold text-white">
-                    {item.rows.toLocaleString()} rows
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Removed Authority profile and Moz API Usage - using free sources now! */}
     </div>
   );
 }
@@ -1904,7 +1765,7 @@ function KeywordView({ report }: { report: SeoReport }) {
           </h3>
           <p className="text-sm text-zinc-400">
             {senseCheck.enabled
-              ? "Moz-backed heuristics and AI filtered the keyword pool before ranking."
+              ? "Claude AI filtered the keyword pool to remove irrelevant terms before ranking."
               : "Sense check disabled—showing raw keyword pools without AI filtering."}
           </p>
         </div>

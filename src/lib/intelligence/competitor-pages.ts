@@ -194,7 +194,7 @@ export function categorizePageByUrl(url: string): CategorizedPage['pageType'] {
     }
 
     // About
-    if (/\/(about|who-we-are|our-story|our-team)($|\/|\?)/i.test(pathname)) {
+    if (/\/(about(?:-us|-team|-company|-studio)?|who-we-are|our-story|our-team)($|\/|\?)/i.test(pathname)) {
       return 'about';
     }
 

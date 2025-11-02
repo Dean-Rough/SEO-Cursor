@@ -157,10 +157,179 @@ function selectBestCandidate(candidates: SchemaRecord[]): SchemaRecord | undefin
         "professionalservice",
         "store",
         "service",
+        "medicalorganization",
+        "dentist",
+        "hospital",
+        "clinic",
+        "attorney",
+        "realestateagent",
+        "financialservice",
+        "autodealer",
+        "hotel",
+        "lodgingbusiness",
       ].includes(type)
     );
   });
   return priority ?? candidates[0];
+}
+
+/**
+ * Extract business name from HTML meta tags and common selectors
+ */
+function extractBusinessNameFromHTML($: ReturnType<typeof load>): string | undefined {
+  // Try og:title meta tag
+  const ogTitle = $('meta[property="og:title"]').attr("content");
+  if (ogTitle?.trim()) return ogTitle.trim();
+
+  // Try h1.fontHeadlineLarge (Google Maps specific)
+  const h1 = $("h1.fontHeadlineLarge").first().text().trim();
+  if (h1) return h1;
+
+  // Try any h1
+  const anyH1 = $("h1").first().text().trim();
+  if (anyH1) return anyH1;
+
+  // Try meta name
+  const metaName = $('meta[name="title"]').attr("content");
+  if (metaName?.trim()) return metaName.trim();
+
+  return undefined;
+}
+
+/**
+ * Extract website URL from HTML using various fallback methods
+ */
+function extractWebsiteFromHTML($: ReturnType<typeof load>): string | undefined {
+  // Try data-item-id="authority" button (Google Maps website link)
+  const authorityLink = $('a[data-item-id="authority"]').attr("href");
+  if (authorityLink && /^https?:\/\//i.test(authorityLink)) {
+    return authorityLink.trim();
+  }
+
+  // Try og:url meta tag
+  const ogUrl = $('meta[property="og:url"]').attr("content");
+  if (ogUrl?.trim() && /^https?:\/\//i.test(ogUrl)) {
+    // Filter out Google domains
+    if (!ogUrl.includes("google.com") && !ogUrl.includes("maps.app.goo.gl")) {
+      return ogUrl.trim();
+    }
+  }
+
+  // Look for links that look like official websites (not social media or Google)
+  const excludedDomains = [
+    "google.com",
+    "facebook.com",
+    "twitter.com",
+    "instagram.com",
+    "linkedin.com",
+    "youtube.com",
+    "maps.app.goo.gl",
+  ];
+  const links = $("a[href]").toArray();
+  for (const link of links) {
+    const href = $(link).attr("href");
+    if (href && /^https?:\/\//i.test(href)) {
+      const isExcluded = excludedDomains.some((domain) => href.includes(domain));
+      if (!isExcluded) {
+        return href.trim();
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract phone number from HTML using regex and selectors
+ */
+function extractPhoneFromHTML($: ReturnType<typeof load>): string | undefined {
+  // Try data-item-id phone button (Google Maps)
+  const phoneButton = $('button[data-item-id^="phone:tel:"]').first();
+  if (phoneButton.length) {
+    const itemId = phoneButton.attr("data-item-id");
+    if (itemId) {
+      const phoneMatch = itemId.match(/phone:tel:(.+)/);
+      if (phoneMatch?.[1]) {
+        return phoneMatch[1].trim();
+      }
+    }
+  }
+
+  // Try tel: links
+  const telLink = $('a[href^="tel:"]').first().attr("href");
+  if (telLink) {
+    return telLink.replace("tel:", "").trim();
+  }
+
+  // Regex pattern for phone numbers
+  const phoneRegex = /\+?\d{1,4}[\s\-\.]?\(?\d{1,4}\)?[\s\-\.]?\d{1,4}[\s\-\.]?\d{1,9}/g;
+  const bodyText = $("body").text();
+  const phoneMatches = bodyText.match(phoneRegex);
+  if (phoneMatches?.length) {
+    // Return the first match that looks reasonable (10+ digits)
+    const validPhone = phoneMatches.find((p) => p.replace(/\D/g, "").length >= 10);
+    if (validPhone) return validPhone.trim();
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract address from HTML using aria-labels and data attributes
+ */
+function extractAddressFromHTML($: ReturnType<typeof load>): string | undefined {
+  // Try data-item-id="address" button (Google Maps)
+  const addressButton = $('button[data-item-id="address"]').first();
+  if (addressButton.length) {
+    const ariaLabel = addressButton.attr("aria-label");
+    if (ariaLabel) {
+      // aria-label often contains "Address: <actual address>"
+      const match = ariaLabel.match(/Address:\s*(.+)/i);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+      return ariaLabel.trim();
+    }
+    const text = addressButton.text().trim();
+    if (text) return text;
+  }
+
+  // Try aria-label containing address patterns
+  const ariaLabels = $('[aria-label*="Address"]').toArray();
+  for (const element of ariaLabels) {
+    const ariaLabel = $(element).attr("aria-label");
+    if (ariaLabel) {
+      const match = ariaLabel.match(/Address:\s*(.+)/i);
+      if (match?.[1]) {
+        return match[1].trim();
+      }
+    }
+  }
+
+  // Try pattern matching for "Street, City, State ZIP"
+  const addressRegex = /\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Court|Ct)[,\s]+[A-Za-z\s]+[,\s]+[A-Z]{2}\s+\d{5}/gi;
+  const bodyText = $("body").text();
+  const addressMatch = bodyText.match(addressRegex);
+  if (addressMatch?.length) {
+    return addressMatch[0].trim();
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract description from meta tags
+ */
+function extractDescriptionFromHTML($: ReturnType<typeof load>): string | undefined {
+  // Try meta description
+  const metaDesc = $('meta[name="description"]').attr("content");
+  if (metaDesc?.trim()) return metaDesc.trim();
+
+  // Try og:description
+  const ogDesc = $('meta[property="og:description"]').attr("content");
+  if (ogDesc?.trim()) return ogDesc.trim();
+
+  return undefined;
 }
 
 export function extractBusinessProfile(html: string): PrefillExtractionResult {
@@ -169,6 +338,10 @@ export function extractBusinessProfile(html: string): PrefillExtractionResult {
   const prefill: BusinessPrefill = {};
   let rawDescription: string | undefined;
 
+  // Load HTML for fallback parsing
+  const $ = load(html);
+
+  // Extract from JSON-LD schema first (primary method)
   if (candidate) {
     const candidateName = candidate["name"];
     if (typeof candidateName === "string") {
@@ -196,7 +369,46 @@ export function extractBusinessProfile(html: string): PrefillExtractionResult {
     }
   }
 
-  const $ = load(html);
+  // Apply HTML fallback parsing for missing fields
+  if (!prefill.businessName) {
+    const htmlName = extractBusinessNameFromHTML($);
+    if (htmlName) {
+      prefill.businessName = htmlName;
+    }
+  }
+
+  if (!prefill.website) {
+    const htmlWebsite = extractWebsiteFromHTML($);
+    if (htmlWebsite) {
+      prefill.website = htmlWebsite;
+    }
+  }
+
+  if (!prefill.businessAddress) {
+    const htmlAddress = extractAddressFromHTML($);
+    if (htmlAddress) {
+      prefill.businessAddress = htmlAddress;
+    }
+  }
+
+  if (!rawDescription) {
+    const htmlDescription = extractDescriptionFromHTML($);
+    if (htmlDescription) {
+      rawDescription = htmlDescription;
+    }
+  }
+
+  // Extract phone number and add to additionalNotes if found
+  const phone = extractPhoneFromHTML($);
+  if (phone) {
+    const phoneNote = `Phone: ${phone}`;
+    if (prefill.additionalNotes) {
+      prefill.additionalNotes += `\n${phoneNote}`;
+    } else {
+      prefill.additionalNotes = phoneNote;
+    }
+  }
+
   const bodyText = $("body").text().replace(/\s+/g, " ").trim();
   const textSample = bodyText ? bodyText.slice(0, 4000) : undefined;
 

@@ -15,6 +15,12 @@ export class MozApiError extends Error {
   }
 }
 
+export interface MozUsageMetrics {
+  rowsUsed: number;
+  method: string;
+  timestamp: number;
+}
+
 interface MozRpcParams {
   [key: string]: unknown;
 }
@@ -29,6 +35,21 @@ interface MozRpcResponse<T> {
     message: string;
     data?: unknown;
   };
+}
+
+// Global usage tracker
+const mozUsageLog: MozUsageMetrics[] = [];
+
+export function getMozUsageLog(): MozUsageMetrics[] {
+  return [...mozUsageLog];
+}
+
+export function clearMozUsageLog(): void {
+  mozUsageLog.length = 0;
+}
+
+export function getTotalMozRowsUsed(): number {
+  return mozUsageLog.reduce((total, entry) => total + entry.rowsUsed, 0);
 }
 
 export async function callMozApi<T>(
@@ -60,6 +81,19 @@ export async function callMozApi<T>(
     throw new MozApiError(
       error instanceof Error ? error.message : "Unknown Moz API network error."
     );
+  }
+
+  // Extract usage from response headers
+  const rowsUsedHeader = response.headers.get("x-moz-rows-used");
+  const rowsUsed = rowsUsedHeader ? parseInt(rowsUsedHeader, 10) : 0;
+
+  if (rowsUsed > 0) {
+    mozUsageLog.push({
+      rowsUsed,
+      method,
+      timestamp: Date.now(),
+    });
+    console.log(`[moz-usage] ${method}: ${rowsUsed} rows (total: ${getTotalMozRowsUsed()})`);
   }
 
   let payload: MozRpcResponse<T>;

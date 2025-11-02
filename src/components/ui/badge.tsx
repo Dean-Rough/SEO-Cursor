@@ -5,18 +5,24 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const badgeVariants = cva(
-  "inline-flex items-center justify-center rounded-full border px-2 py-0.5 text-xs font-medium w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-1 [&>svg]:pointer-events-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive transition-[color,box-shadow] overflow-hidden",
+  "inline-flex items-center justify-center rounded-md border-none px-[12px] py-[4px] text-xs font-semibold w-fit whitespace-nowrap shrink-0 [&>svg]:size-3 gap-[var(--space-1)] [&>svg]:pointer-events-none transition-[color,background] duration-[var(--duration-fast)] ease-[var(--ease-out)] overflow-hidden max-w-full text-ellipsis leading-[1.4]",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
+          "bg-[var(--primary-600)] text-white [a&]:hover:bg-[var(--primary-700)]",
         secondary:
-          "border-transparent bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
+          "bg-[var(--bg-emphasis)] text-[var(--text-secondary)] [a&]:hover:bg-[var(--bg-muted)]",
         destructive:
-          "border-transparent bg-destructive text-white [a&]:hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "bg-[var(--error-bg)] text-[var(--error-text)] [a&]:hover:bg-[var(--error-bg)]/80",
+        success:
+          "bg-[var(--success-bg)] text-[var(--success-text)] [a&]:hover:bg-[var(--success-bg)]/80",
+        warning:
+          "bg-[var(--warning-bg)] text-[var(--warning-text)] [a&]:hover:bg-[var(--warning-bg)]/80",
+        info:
+          "bg-[var(--info-bg)] text-[var(--info-text)] [a&]:hover:bg-[var(--info-bg)]/80",
         outline:
-          "text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
+          "border border-[var(--border-default)] bg-transparent text-[var(--text-primary)] [a&]:hover:bg-[var(--bg-subtle)]",
       },
     },
     defaultVariants: {

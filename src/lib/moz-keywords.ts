@@ -91,14 +91,20 @@ export async function fetchMozKeywordInsights(
 
   const notes: string[] = [];
   const localeContext = determineLocale(args.serviceArea, args.location);
-  const seeds = buildSeedKeywords(args, localeContext.primaryLocation).slice(
-    0,
-    MAX_SEEDS
-  );
+
+  // Import optimizer
+  const { getOptimizationStrategy, selectOptimalSeeds } = await import("./moz-optimizer");
+  const strategy = getOptimizationStrategy();
+
+  // Use smart seed selection
+  const seedCandidates = buildSeedKeywords(args, localeContext.primaryLocation);
+  const seeds = selectOptimalSeeds(seedCandidates, strategy.maxSeeds);
 
   if (!seeds.length) {
     seeds.push(args.businessType.trim().toLowerCase());
   }
+
+  notes.push(`Using ${seeds.length} seed keywords (optimization: ${process.env.MOZ_OPTIMIZATION_STRATEGY || "BALANCED"})`);
 
   const suggestionMap = new Map<string, KeywordSuggestion>();
   const metricsCandidates = new Map<string, { reason: string }>();
@@ -121,7 +127,7 @@ export async function fetchMozKeywordInsights(
             strategy: "default",
           },
           page: {
-            limit: SUGGESTION_LIMIT,
+            limit: strategy.maxSuggestions,
           },
         },
       });
@@ -160,7 +166,7 @@ export async function fetchMozKeywordInsights(
             sort: "rank",
           },
           page: {
-            limit: COMPETITOR_LIMIT,
+            limit: strategy.maxCompetitorKeywords,
           },
         },
       });
@@ -186,10 +192,19 @@ export async function fetchMozKeywordInsights(
     }
   }
 
-  const uniqueKeywords = Array.from(metricsCandidates.keys()).slice(
-    0,
-    METRIC_LIMIT
-  );
+  // Use prioritization from optimizer
+  const { prioritizeKeywords, deduplicateKeywords } = await import("./moz-optimizer");
+  const allCandidates = Array.from(metricsCandidates.keys()).map(kw => ({
+    keyword: kw,
+    score: 1,
+    density: 0,
+    source: metricsCandidates.get(kw)?.reason as any || "dataset",
+  }));
+
+  const prioritized = prioritizeKeywords(allCandidates, strategy);
+  const uniqueKeywords = prioritized
+    .slice(0, strategy.maxMetrics)
+    .map(kw => kw.keyword);
   const metricsMap = new Map<string, MozKeywordMetrics>();
 
   // Batch API calls for better performance

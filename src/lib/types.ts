@@ -108,6 +108,9 @@ export interface SeoReport {
   siteArchitecture: SiteArchitectureEntry[];
   recommendations: string[];
 
+  // Removed mozUsage - no longer using Moz API!
+  // Using free sources: Google Autocomplete, PAA, Related Searches, Claude AI
+
   // New Phase 1: Enhanced Intelligence (optional)
   intelligence?: {
     targetSiteAnalysis: {

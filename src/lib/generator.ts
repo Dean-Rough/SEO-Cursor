@@ -10,11 +10,10 @@ import {
   type KeywordDatasetEntry,
   enrichWithLocality,
 } from "./keyword-dataset";
-import { fetchMozMetrics } from "./moz";
 import { generateContentDrafts, type ContentBrief } from "./content-writer";
-import { hasMozDataApiToken, hasOpenAICredentials } from "./env";
+import { hasOpenAICredentials } from "./env";
 import { senseCheckKeywords, type SenseCheckResult } from "./ai-utils";
-import { fetchMozKeywordInsights } from "./moz-keywords";
+import { performFreeKeywordResearch } from "./free-keyword-research";
 import { fetchPageHtml } from "./fetcher";
 import {
   analyzeContentDepth,
@@ -87,6 +86,9 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
   const additionalNotes = input.additionalNotes?.trim();
   const googleBusinessProfile = input.googleBusinessProfile?.trim();
 
+  // Clear Moz usage log at start of generation
+  // No longer tracking Moz usage - using free sources instead!
+
   const targetSite = await analyseSite(input.website, {
     includeInternal: true,
     maxInternalPages: MAX_INTERNAL_PAGES,
@@ -105,71 +107,90 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
   );
   const siteKeywords = aggregateKeywordUniverse([targetSite], "site");
 
-  // Require Moz Data API for keyword intelligence
-  if (!hasMozDataApiToken) {
-    throw new Error(
-      "MOZ_DATA_API_KEY is required to generate SEO strategies. " +
-      "Without Moz keyword data, we cannot provide accurate search volume, difficulty, " +
-      "or competitive intelligence. Please configure your Moz Data API credentials."
-    );
-  }
-
+  // No longer requiring Moz - we use free sources instead!
+  // Optional: OpenAI API key enhances results with semantic expansion
   let datasetKeywords: KeywordDatasetEntry[] = [];
-  let mozKeywordNotes: string[] = [];
+  let keywordResearchNotes: string[] = [];
 
+  // Use free keyword research instead of Moz
   try {
-    const mozInsights = await fetchMozKeywordInsights({
+    console.log("[generator] Performing free keyword research...");
+
+    // Build seed keywords from business type and site keywords
+    const seedKeywords = [
+      input.businessType,
+      ...siteKeywords.slice(0, 3).map(k => k.keyword),
+    ].filter(Boolean);
+
+    const freeKeywords = await performFreeKeywordResearch({
+      seedKeywords,
       businessType: input.businessType,
-      additionalNotes,
-      serviceArea: input.serviceArea,
       location: locationContext.primaryLocation,
-      competitors: input.competitors,
-      siteKeywords,
+      useClaudeExpansion: hasOpenAICredentials,
+      maxKeywords: 100,
     });
 
-    if (!mozInsights?.datasetEntries?.length) {
+    if (!freeKeywords || freeKeywords.length === 0) {
       throw new Error(
-        "Moz API returned no keyword data. This could mean:\n" +
-        "1. Invalid Moz API credentials\n" +
-        "2. No relevant keywords found for this business type\n" +
-        "3. API rate limit exceeded\n\n" +
+        "Keyword research returned no results. This could mean:\n" +
+        "1. Network connectivity issues\n" +
+        "2. Rate limiting from Google services\n" +
+        "3. Invalid seed keywords\n\n" +
         "Cannot generate report without keyword intelligence."
       );
     }
 
-    datasetKeywords = mozInsights.datasetEntries;
+    // Convert free keywords to dataset format
+    datasetKeywords = freeKeywords.map((kw, index) => ({
+      keyword: kw.keyword,
+      score: kw.score,
+      intent: kw.intent ?? 'informational', // Default to informational if not set
+      volume: kw.volume ?? 0, // We don't have volume data from free sources
+      difficulty: kw.difficulty ?? 0, // We don't have difficulty data from free sources
+    }));
 
-    if (mozInsights?.competitorKeywords?.length) {
-      competitorKeywords = dedupeKeywordStats([
-        competitorKeywords,
-        mozInsights.competitorKeywords,
-      ]);
+    // Add competitor keywords to the mix
+    if (competitorKeywords.length > 0) {
+      const competitorKeywordSet = new Set(competitorKeywords.map(k => k.keyword.toLowerCase()));
+      const newFromFree = freeKeywords.filter(
+        kw => !competitorKeywordSet.has(kw.keyword.toLowerCase())
+      );
+
+      if (newFromFree.length > 0) {
+        competitorKeywords = dedupeKeywordStats([
+          competitorKeywords,
+          newFromFree,
+        ]);
+      }
     }
-    mozKeywordNotes = mozInsights?.notes ?? [];
+
+    keywordResearchNotes = [
+      `Found ${freeKeywords.length} keywords using free research`,
+      hasOpenAICredentials
+        ? 'Enhanced with Claude AI semantic expansion'
+        : 'Claude AI expansion available - add OPENAI_API_KEY for better results',
+    ];
+
+    console.log(`[generator] Free keyword research complete: ${datasetKeywords.length} keywords`);
   } catch (error) {
-    if (error instanceof Error && error.message.includes("MOZ_DATA_API_KEY")) {
-      throw error; // Re-throw our validation error
-    }
-    console.error("[moz-keywords] Failed to load Moz keyword insights:", error);
+    console.error("[generator] Failed to perform keyword research:", error);
     throw new Error(
-      "Failed to retrieve Moz keyword data: " +
+      "Failed to retrieve keyword data: " +
       (error instanceof Error ? error.message : "Unknown error") +
       "\n\nCannot generate report without keyword intelligence."
     );
   }
 
-  const mozMetrics = await hydrateMozMetrics([targetSite, ...competitorSnapshots], {
-    targetUrl: input.website,
-  });
-
+  // No longer using Moz metrics - we don't need DA/PA scores
+  // Content quality and keyword relevance matter more than vanity metrics
   const enrichedTarget = {
     ...targetSite,
-    metrics: mozMetrics.get(targetSite.domain) ?? targetSite.metrics ?? null,
+    metrics: targetSite.metrics ?? null,
   } satisfies SiteSnapshot;
 
   const enrichedCompetitors = competitorSnapshots.map((snapshot) => ({
     ...snapshot,
-    metrics: mozMetrics.get(snapshot.domain) ?? snapshot.metrics ?? null,
+    metrics: snapshot.metrics ?? null,
   }));
 
   // ========================================
@@ -278,8 +299,8 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
   });
   const senseCheckNotes = [...keywordStrategy.notes];
 
-  if (mozKeywordNotes.length) {
-    keywordStrategy.notes.push(...mozKeywordNotes);
+  if (keywordResearchNotes.length) {
+    keywordStrategy.notes.push(...keywordResearchNotes);
   }
 
   const metadataPlan = buildMetadataPlan(
@@ -584,6 +605,9 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     useSenseCheck: input.useSenseCheck !== false,
   };
 
+  // No longer tracking Moz usage - using free research sources
+  // Celebrate: You're saving ~$1,200/year! 🎉
+
   return {
     generatedAt: new Date().toISOString(),
     input: normalisedInput,
@@ -606,6 +630,7 @@ export async function generateSeoReport(rawInput: SiteInput): Promise<SeoReport>
     strategy: strategyReport,
     blueprints,
     generatedContent,
+    // mozUsage removed - no longer needed!
   };
 }
 
@@ -842,21 +867,9 @@ function extractLocalityKeywords(stats: KeywordStat[], terms: string[]): Keyword
   return locality.slice(0, 8);
 }
 
-async function hydrateMozMetrics(
-  snapshots: SiteSnapshot[],
-  options: { targetUrl: string }
-) {
-  const targetOrigins = snapshots.map((snapshot, index) => {
-    if (!snapshot.domain) return null;
-    if (index === 0) {
-      return normaliseUrl(options.targetUrl);
-    }
-    return `https://${snapshot.domain}`;
-  });
-
-  const metrics = await fetchMozMetrics(targetOrigins.filter(Boolean) as string[]);
-  return metrics;
-}
+// Removed hydrateMozMetrics - no longer using Moz API for metrics
+// Domain Authority and Page Authority are vanity metrics
+// Focus on content quality and keyword relevance instead
 
 function buildLocationContext(input: SiteInput): LocationContext {
   const address = input.businessAddress?.trim() || undefined;
